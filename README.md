@@ -6,6 +6,8 @@ Reusable workflow for collecting AWS Lambda CloudWatch data and turning it into 
 
 - `scripts/cloudwatch_review_collect.sh`
   Collects Lambda configuration, metrics, log counts, top messages, and `REPORT` analysis into artifact files.
+- `scripts/run_cloudwatch_review.py`
+  Interactive automation that runs the collector, parses the generated artifact files, and writes the final markdown report.
 - `docs/templates/lambda_cloudwatch_review.template.md`
   Generic markdown template for the final report.
 - `prompts/fill_lambda_cloudwatch_review.prompt.md`
@@ -104,6 +106,26 @@ Recommended input set for the AI step:
 3. `artifacts/cloudwatch-review/<run-id>/context.txt`
 
 Or, if needed, provide the individual artifact files listed in the prompt.
+
+## Step 3: Run the full automation
+
+No external Python package is required. The automation uses the standard library only.
+
+You can optionally create a local `.env` file from `.env.example` to provide defaults such as `AWS_REGION`. The automation auto-loads `.env` from the repo root.
+
+Run the interactive workflow:
+
+```bash
+python3 scripts/run_cloudwatch_review.py
+```
+
+The script will:
+
+1. prompt for environment, region, time window, and Lambda names
+2. run `scripts/cloudwatch_review_collect.sh`
+3. parse the generated artifact files directly
+4. fill the markdown template deterministically
+5. save the report to `reports/{env}_{execution_date}_websocket_reports.md`
 
 ## Output expectation
 
