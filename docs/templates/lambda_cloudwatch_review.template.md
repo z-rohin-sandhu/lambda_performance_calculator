@@ -19,6 +19,9 @@ Lambdas reviewed:
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 {{KEY_METRICS_TABLE}}
 
+Filtered latency metrics:
+{{FILTERED_METRICS}}
+
 Additional observations:
 {{ADDITIONAL_OBSERVATIONS}}
 

@@ -33,6 +33,8 @@ class ReviewInputs:
     end_time: str
     region: str
     lambda_names: tuple[str, ...]
+    message_filter_key: str | None = None
+    message_filter_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,19 @@ class LambdaSummary:
     in_vpc: bool = False
     state: str | None = None
     update_status: str | None = None
+
+
+@dataclass(frozen=True)
+class FilteredLambdaSummary:
+    """Store message-filtered latency metrics for a Lambda."""
+
+    name: str
+    matching_invocations: int
+    avg_duration_ms: float | None = None
+    p90_duration_ms: float | None = None
+    p95_duration_ms: float | None = None
+    p99_duration_ms: float | None = None
+    max_duration_ms: float | None = None
 
 
 def default_end_time() -> str:
@@ -151,6 +166,31 @@ def prompt_lambda_names(env_name: str) -> tuple[str, ...]:
     return default_lambda_names(env_name)
 
 
+def parse_filter_values(raw_value: str) -> tuple[str, ...]:
+    """Parse a comma-separated list of message filter values."""
+
+    values = [value.strip() for value in raw_value.split(",")]
+    return tuple(dict.fromkeys(value for value in values if value))
+
+
+def prompt_message_filter() -> tuple[str | None, tuple[str, ...]]:
+    """Collect an optional message filter for latency metrics."""
+
+    filter_key = input(
+        "\nMessage filter key for latency metrics (optional, e.g. brand_id): "
+    ).strip()
+    if not filter_key:
+        return None, ()
+
+    raw_filter_values = input(
+        f"Message filter values for {filter_key} (comma-separated): "
+    ).strip()
+    filter_values = parse_filter_values(raw_filter_values)
+    if not filter_values:
+        raise AutomationError("At least one message filter value is required when a filter key is provided.")
+    return filter_key, filter_values
+
+
 def collect_inputs() -> ReviewInputs:
     """Prompt for review inputs and validate the result."""
 
@@ -165,12 +205,15 @@ def collect_inputs() -> ReviewInputs:
         raise AutomationError("Start time must be earlier than end time.")
 
     lambda_names = prompt_lambda_names(env_name)
+    message_filter_key, message_filter_values = prompt_message_filter()
     return ReviewInputs(
         env_name=env_name,
         start_time=start_time,
         end_time=end_time,
         region=region,
         lambda_names=lambda_names,
+        message_filter_key=message_filter_key,
+        message_filter_values=message_filter_values,
     )
 
 
@@ -205,6 +248,10 @@ def run_collector(repo_root: Path, inputs: ReviewInputs) -> Path:
     ]
     for lambda_name in inputs.lambda_names:
         command.extend(["--lambda", lambda_name])
+    if inputs.message_filter_key and inputs.message_filter_values:
+        command.extend(["--message-filter-key", inputs.message_filter_key])
+        for message_filter_value in inputs.message_filter_values:
+            command.extend(["--message-filter-value", message_filter_value])
 
     LOGGER.info("Running collector script...")
     subprocess.run(command, cwd=repo_root, check=True)
@@ -408,6 +455,91 @@ def parse_report_metrics(path: Path) -> dict[str, dict[str, float | int]]:
     return metrics
 
 
+def parse_filtered_report_metrics(path: Path) -> dict[str, FilteredLambdaSummary]:
+    """Parse message-filtered REPORT-derived metrics by Lambda."""
+
+    metrics: dict[str, FilteredLambdaSummary] = {}
+    payload = parse_logs_json_payload(path)
+    for row in payload.get("results", []):
+        mapped_row = row_to_mapping(row)
+        lambda_name = lambda_name_from_log_identifier(mapped_row["@log"])
+        metrics[lambda_name] = FilteredLambdaSummary(
+            name=lambda_name,
+            matching_invocations=int(float(mapped_row["matching_invocations"])),
+            avg_duration_ms=float(mapped_row["avg_duration_ms"]),
+            p90_duration_ms=float(mapped_row["p90_duration_ms"]),
+            p95_duration_ms=float(mapped_row["p95_duration_ms"]),
+            p99_duration_ms=float(mapped_row["p99_duration_ms"]),
+            max_duration_ms=float(mapped_row["max_duration_ms"]),
+        )
+    return metrics
+
+
+def get_message_filter_values(
+    metadata_scalars: dict[str, str],
+    metadata_sections: dict[str, list[str]],
+) -> list[str]:
+    """Return the requested message filter values from metadata."""
+
+    section_values = metadata_sections.get("message_filter_values", [])
+    filtered_section_values = [value for value in section_values if value and value != "none"]
+    if filtered_section_values:
+        return filtered_section_values
+
+    scalar_value = metadata_scalars.get("message_filter_value", "").strip()
+    if scalar_value:
+        return [scalar_value]
+    return []
+
+
+def load_filtered_metrics(
+    run_dir: Path,
+    metadata_scalars: dict[str, str],
+    metadata_sections: dict[str, list[str]],
+) -> dict[str, FilteredLambdaSummary]:
+    """Load message-filtered latency metrics when a filter was requested."""
+
+    message_filter_key = metadata_scalars.get("message_filter_key", "").strip()
+    message_filter_values = get_message_filter_values(metadata_scalars, metadata_sections)
+    if not message_filter_key or not message_filter_values:
+        return {}
+    return parse_filtered_report_metrics(run_dir / "logs_filtered_report.txt")
+
+
+def build_lambda_summary(
+    lambda_name: str,
+    config_data: dict[str, dict[str, Any]],
+    report_metrics: dict[str, dict[str, float | int]],
+    invocation_metrics: dict[str, dict[str, int]],
+    error_counts: dict[str, dict[str, int]],
+    concurrency_metrics: dict[str, float | None],
+) -> LambdaSummary:
+    """Build the merged summary for a single Lambda."""
+
+    config = config_data.get(lambda_name, {})
+    report = report_metrics.get(lambda_name, {})
+    invocations = invocation_metrics.get(lambda_name, {})
+    warnings_and_errors = error_counts.get(lambda_name, {})
+    return LambdaSummary(
+        name=lambda_name,
+        invocations=invocations.get("invocations"),
+        lambda_errors=invocations.get("errors"),
+        throttles=invocations.get("throttles"),
+        avg_duration_ms=float(report["avg_duration_ms"]) if "avg_duration_ms" in report else None,
+        p95_duration_ms=float(report["p95_duration_ms"]) if "p95_duration_ms" in report else None,
+        p99_duration_ms=float(report["p99_duration_ms"]) if "p99_duration_ms" in report else None,
+        max_duration_ms=float(report["max_duration_ms"]) if "max_duration_ms" in report else None,
+        cold_starts=int(report["cold_starts"]) if "cold_starts" in report else None,
+        avg_init_duration_ms=float(report["avg_init_duration_ms"]) if "avg_init_duration_ms" in report else None,
+        warning_count=warnings_and_errors.get("WARNING", 0),
+        error_count=warnings_and_errors.get("ERROR", 0),
+        max_concurrency=concurrency_metrics.get(lambda_name),
+        in_vpc=bool(config.get("VpcConfig", {}).get("VpcId")),
+        state=config.get("State"),
+        update_status=config.get("LastUpdateStatus"),
+    )
+
+
 def parse_error_counts(path: Path) -> dict[str, dict[str, int]]:
     """Parse warning and error counts by Lambda."""
 
@@ -439,7 +571,15 @@ def parse_top_messages(path: Path) -> list[dict[str, str | int]]:
     return messages
 
 
-def load_lambda_summaries(run_dir: Path) -> tuple[dict[str, str], dict[str, list[str]], dict[str, LambdaSummary], list[dict[str, str | int]]]:
+def load_lambda_summaries(
+    run_dir: Path,
+) -> tuple[
+    dict[str, str],
+    dict[str, list[str]],
+    dict[str, LambdaSummary],
+    list[dict[str, str | int]],
+    dict[str, FilteredLambdaSummary],
+]:
     """Load and merge all artifact-derived Lambda summary data."""
 
     metadata_scalars, metadata_sections = parse_metadata_details(run_dir / "metadata.txt")
@@ -451,33 +591,20 @@ def load_lambda_summaries(run_dir: Path) -> tuple[dict[str, str], dict[str, list
     report_metrics = parse_report_metrics(run_dir / "logs_report.txt")
     error_counts = parse_error_counts(run_dir / "logs_error_counts.txt")
     top_messages = parse_top_messages(run_dir / "logs_top_messages.txt")
+    filtered_metrics = load_filtered_metrics(run_dir, metadata_scalars, metadata_sections)
 
     summaries: dict[str, LambdaSummary] = {}
     for lambda_name in lambda_names:
-        config = config_data.get(lambda_name, {})
-        report = report_metrics.get(lambda_name, {})
-        invocations = invocation_metrics.get(lambda_name, {})
-        warnings_and_errors = error_counts.get(lambda_name, {})
-        summaries[lambda_name] = LambdaSummary(
-            name=lambda_name,
-            invocations=invocations.get("invocations"),
-            lambda_errors=invocations.get("errors"),
-            throttles=invocations.get("throttles"),
-            avg_duration_ms=float(report["avg_duration_ms"]) if "avg_duration_ms" in report else None,
-            p95_duration_ms=float(report["p95_duration_ms"]) if "p95_duration_ms" in report else None,
-            p99_duration_ms=float(report["p99_duration_ms"]) if "p99_duration_ms" in report else None,
-            max_duration_ms=float(report["max_duration_ms"]) if "max_duration_ms" in report else None,
-            cold_starts=int(report["cold_starts"]) if "cold_starts" in report else None,
-            avg_init_duration_ms=float(report["avg_init_duration_ms"]) if "avg_init_duration_ms" in report else None,
-            warning_count=warnings_and_errors.get("WARNING", 0),
-            error_count=warnings_and_errors.get("ERROR", 0),
-            max_concurrency=concurrency_metrics.get(lambda_name),
-            in_vpc=bool(config.get("VpcConfig", {}).get("VpcId")),
-            state=config.get("State"),
-            update_status=config.get("LastUpdateStatus"),
+        summaries[lambda_name] = build_lambda_summary(
+            lambda_name=lambda_name,
+            config_data=config_data,
+            report_metrics=report_metrics,
+            invocation_metrics=invocation_metrics,
+            error_counts=error_counts,
+            concurrency_metrics=concurrency_metrics,
         )
 
-    return metadata_scalars, metadata_sections, summaries, top_messages
+    return metadata_scalars, metadata_sections, summaries, top_messages, filtered_metrics
 
 
 def format_count(value: int | None) -> str:
@@ -533,6 +660,67 @@ def build_metrics_table(lambda_names: list[str], summaries: dict[str, LambdaSumm
             f"{format_ms(summary.avg_init_duration_ms)} |"
         )
     return "\n".join(rows)
+
+
+def build_filtered_metrics_section(
+    lambda_names: list[str],
+    metadata_scalars: dict[str, str],
+    metadata_sections: dict[str, list[str]],
+    filtered_metrics: dict[str, FilteredLambdaSummary],
+) -> str:
+    """Build the markdown section for message-filtered latency metrics."""
+
+    filter_key = metadata_scalars.get("message_filter_key", "").strip()
+    filter_values = get_message_filter_values(metadata_scalars, metadata_sections)
+    if not filter_key or not filter_values:
+        return "No message-level latency filter was requested for this review."
+
+    rendered_filter_values = ", ".join(f"`{value}`" for value in filter_values)
+
+    matching_summaries = [
+        filtered_metrics[lambda_name]
+        for lambda_name in lambda_names
+        if lambda_name in filtered_metrics
+    ]
+    if not matching_summaries:
+        return (
+            f"No matching invocations were returned for the message filter "
+            f"`{filter_key}` in [{rendered_filter_values}]."
+        )
+
+    lines = [
+        f"Filtered on invocations where a log message contained `{filter_key}` in [{rendered_filter_values}].",
+        "",
+        "| Lambda | Matching Invocations | Avg Duration | P90 | P95 | P99 | Max |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for summary in matching_summaries:
+        lines.append(
+            "| "
+            f"`{summary.name}` | "
+            f"{summary.matching_invocations} | "
+            f"{format_ms(summary.avg_duration_ms)} | "
+            f"{format_ms(summary.p90_duration_ms)} | "
+            f"{format_ms(summary.p95_duration_ms)} | "
+            f"{format_ms(summary.p99_duration_ms)} | "
+            f"{format_ms(summary.max_duration_ms)} |"
+        )
+
+    missing_matches = [
+        f"`{lambda_name}`"
+        for lambda_name in lambda_names
+        if lambda_name not in filtered_metrics
+    ]
+    if missing_matches:
+        lines.extend(
+            [
+                "",
+                "No matching invocations were returned for: "
+                + ", ".join(missing_matches)
+                + ".",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def build_additional_observations(lambda_names: list[str], summaries: dict[str, LambdaSummary], missing_lambdas: list[str]) -> str:
@@ -718,7 +906,7 @@ def build_next_steps(primary: LambdaSummary | None, top_messages: list[dict[str,
     return "\n".join(deduped_steps[:5])
 
 
-def build_notes(metadata_sections: dict[str, list[str]]) -> str:
+def build_notes(metadata_scalars: dict[str, str], metadata_sections: dict[str, list[str]]) -> str:
     """Build the notes section."""
 
     notes = [
@@ -728,6 +916,13 @@ def build_notes(metadata_sections: dict[str, list[str]]) -> str:
     missing = metadata_sections.get("missing_lambdas", [])
     if missing and missing != ["none"]:
         notes.append("- Some requested Lambdas were missing from the environment and therefore excluded from the generated report.")
+    if metadata_scalars.get("message_filter_key", "").strip() and get_message_filter_values(
+        metadata_scalars,
+        metadata_sections,
+    ):
+        notes.append(
+            "- Filtered latency metrics are derived by grouping CloudWatch log events by request id, then keeping only invocations whose log messages included any requested filter value for the selected key."
+        )
     return "\n".join(notes)
 
 
@@ -743,7 +938,7 @@ def render_report(template_text: str, replacements: dict[str, str]) -> str:
 def build_report(repo_root: Path, run_dir: Path) -> tuple[str, str, str]:
     """Build the final report markdown and return metadata for output."""
 
-    metadata_scalars, metadata_sections, summaries, top_messages = load_lambda_summaries(run_dir)
+    metadata_scalars, metadata_sections, summaries, top_messages, filtered_metrics = load_lambda_summaries(run_dir)
     lambda_names = metadata_sections.get("active_lambdas") or metadata_sections.get("requested_lambdas") or []
     if lambda_names == ["none"]:
         lambda_names = []
@@ -758,6 +953,12 @@ def build_report(repo_root: Path, run_dir: Path) -> tuple[str, str, str]:
         "LAMBDA_LIST": build_lambda_list(lambda_names),
         "EXECUTIVE_SUMMARY": build_executive_summary(lambda_names, summaries, primary),
         "KEY_METRICS_TABLE": build_metrics_table(lambda_names, summaries),
+        "FILTERED_METRICS": build_filtered_metrics_section(
+            lambda_names,
+            metadata_scalars,
+            metadata_sections,
+            filtered_metrics,
+        ),
         "ADDITIONAL_OBSERVATIONS": build_additional_observations(
             lambda_names,
             summaries,
@@ -767,7 +968,7 @@ def build_report(repo_root: Path, run_dir: Path) -> tuple[str, str, str]:
         "TOP_MESSAGES": build_top_messages(top_messages),
         "RCA_SUMMARY": build_rca_summary(primary, top_messages),
         "NEXT_STEPS": build_next_steps(primary, top_messages),
-        "NOTES": build_notes(metadata_sections),
+        "NOTES": build_notes(metadata_scalars, metadata_sections),
     }
     execution_date = parse_iso8601(metadata_scalars["end_time"]).date().isoformat()
     return metadata_scalars["env"], execution_date, render_report(template_text, replacements)

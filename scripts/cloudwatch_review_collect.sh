@@ -14,6 +14,11 @@ Options:
   --region <name>      AWS region. Default: value of AWS_REGION or us-west-1
   --output-dir <path>  Output base directory. Default: artifacts/cloudwatch-review
   --lambda <name>      Custom Lambda name. Repeat to provide multiple Lambdas.
+  --message-filter-key <key>
+                       Message JSON key used to derive filtered latency metrics.
+  --message-filter-value <value>
+                       Message JSON value used to derive filtered latency metrics.
+                       Repeat to aggregate multiple values together.
   --help               Show this help text
 
 Defaults:
@@ -63,6 +68,41 @@ sanitize_for_path() {
   value="${value//:/-}"
   value="${value// /_}"
   echo "${value//\//-}"
+}
+
+escape_for_regex() {
+  local value="$1"
+  python3 - "$value" <<'PY'
+import re
+import sys
+
+print(re.escape(sys.argv[1]))
+PY
+}
+
+escape_for_double_quotes() {
+  local value="$1"
+  python3 - "$value" <<'PY'
+import sys
+
+print(sys.argv[1].replace("\\", "\\\\").replace('"', '\\"'))
+PY
+}
+
+join_with_delimiter() {
+  local delimiter="$1"
+  shift
+  local joined_value=""
+  local value=""
+
+  for value in "$@"; do
+    if [[ -n "${joined_value}" ]]; then
+      joined_value+="${delimiter}"
+    fi
+    joined_value+="${value}"
+  done
+
+  printf '%s' "${joined_value}"
 }
 
 append_command_header() {
@@ -149,6 +189,42 @@ run_logs_query() {
   } >> "${output_file}"
 }
 
+build_filtered_report_query() {
+  local filter_key="$1"
+  local escaped_filter_key=""
+  local filter_expression=""
+  local filter_value=""
+  local escaped_filter_value=""
+
+  escaped_filter_key="$(escape_for_regex "${filter_key}")"
+  for filter_value in "${@:2}"; do
+    escaped_filter_value="$(escape_for_double_quotes "${filter_value}")"
+    if [[ -n "${filter_expression}" ]]; then
+      filter_expression+=" or "
+    fi
+    filter_expression+="matched_filter_value = \"${escaped_filter_value}\""
+  done
+
+  cat <<EOF
+fields @log, @requestId, @message, @duration
+| parse @message /"${escaped_filter_key}"\s*:\s*"?(?<matched_value>[^",}\s]+)"?/
+| stats
+    max(@duration) as duration_ms,
+    latest(matched_value) as matched_filter_value
+  by @log, @requestId
+| filter ispresent(matched_filter_value) and (${filter_expression})
+| stats
+    count(*) as matching_invocations,
+    avg(duration_ms) as avg_duration_ms,
+    pct(duration_ms, 90) as p90_duration_ms,
+    pct(duration_ms, 95) as p95_duration_ms,
+    pct(duration_ms, 99) as p99_duration_ms,
+    max(duration_ms) as max_duration_ms
+  by @log
+| sort matching_invocations desc
+EOF
+}
+
 build_context_file() {
   local context_file="$1"
   shift
@@ -171,6 +247,8 @@ AWS_REGION="${AWS_REGION:-us-west-1}"
 START_TIME="${START_TIME:-$(default_start_time)}"
 END_TIME="${END_TIME:-$(default_end_time)}"
 OUTPUT_BASE_DIR="${repo_root}/artifacts/cloudwatch-review"
+MESSAGE_FILTER_KEY=""
+declare -a MESSAGE_FILTER_VALUES=()
 
 declare -a CUSTOM_LAMBDAS=()
 
@@ -200,6 +278,14 @@ while [[ $# -gt 0 ]]; do
       CUSTOM_LAMBDAS+=("$2")
       shift 2
       ;;
+    --message-filter-key)
+      MESSAGE_FILTER_KEY="$2"
+      shift 2
+      ;;
+    --message-filter-value)
+      MESSAGE_FILTER_VALUES+=("$2")
+      shift 2
+      ;;
     --help|-h)
       usage
       exit 0
@@ -211,6 +297,16 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -n "${MESSAGE_FILTER_KEY}" && "${#MESSAGE_FILTER_VALUES[@]}" -eq 0 ]]; then
+  echo "--message-filter-value is required when --message-filter-key is set." >&2
+  exit 1
+fi
+
+if [[ -z "${MESSAGE_FILTER_KEY}" && "${#MESSAGE_FILTER_VALUES[@]}" -gt 0 ]]; then
+  echo "--message-filter-key is required when --message-filter-value is set." >&2
+  exit 1
+fi
 
 declare -a REQUESTED_LAMBDAS=()
 if [[ "${#CUSTOM_LAMBDAS[@]}" -gt 0 ]]; then
@@ -239,6 +335,7 @@ metrics_concurrency_file="${run_dir}/metrics_concurrency.txt"
 logs_error_counts_file="${run_dir}/logs_error_counts.txt"
 logs_top_messages_file="${run_dir}/logs_top_messages.txt"
 logs_report_file="${run_dir}/logs_report.txt"
+logs_filtered_report_file="${run_dir}/logs_filtered_report.txt"
 context_file="${run_dir}/context.txt"
 
 declare -a ACTIVE_LAMBDAS=()
@@ -254,6 +351,14 @@ declare -a LOG_GROUPS=()
   echo "end_epoch=${END_EPOCH}"
   echo "run_id=${run_id}"
   echo "run_dir=${run_dir}"
+  echo "message_filter_key=${MESSAGE_FILTER_KEY}"
+  echo
+  echo "[message_filter_values]"
+  if [[ "${#MESSAGE_FILTER_VALUES[@]}" -gt 0 ]]; then
+    printf '%s\n' "${MESSAGE_FILTER_VALUES[@]}"
+  else
+    echo "none"
+  fi
   echo
   echo "[requested_lambdas]"
   printf '%s\n' "${REQUESTED_LAMBDAS[@]}"
@@ -445,6 +550,22 @@ run_logs_query "${logs_error_counts_file}" "Warning and error counts by Lambda" 
 run_logs_query "${logs_top_messages_file}" "Top warning and error messages" "${top_messages_query}"
 run_logs_query "${logs_report_file}" "Lambda REPORT analysis" "${report_query}"
 
+if [[ -n "${MESSAGE_FILTER_KEY}" ]]; then
+  rendered_filter_values="$(join_with_delimiter ", " "${MESSAGE_FILTER_VALUES[@]}")"
+  filtered_report_query="$(build_filtered_report_query "${MESSAGE_FILTER_KEY}" "${MESSAGE_FILTER_VALUES[@]}")"
+  run_logs_query \
+    "${logs_filtered_report_file}" \
+    "Lambda REPORT analysis filtered by ${MESSAGE_FILTER_KEY} in [${rendered_filter_values}]" \
+    "${filtered_report_query}"
+else
+  : > "${logs_filtered_report_file}"
+  append_command_header "${logs_filtered_report_file}" "Filtered Lambda REPORT analysis"
+  {
+    echo "No message filter was requested."
+    echo
+  } >> "${logs_filtered_report_file}"
+fi
+
 build_context_file \
   "${context_file}" \
   "${metadata_file}" \
@@ -454,7 +575,8 @@ build_context_file \
   "${metrics_concurrency_file}" \
   "${logs_error_counts_file}" \
   "${logs_top_messages_file}" \
-  "${logs_report_file}"
+  "${logs_report_file}" \
+  "${logs_filtered_report_file}"
 
 echo "CloudWatch review artifacts created at:"
 echo "${run_dir}"
