@@ -1,0 +1,1469 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GPT Rollout Health Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #161a22;
+      --panel-2: #1e2330;
+      --border: #2a3142;
+      --text: #e7ecf3;
+      --muted: #9aa4b2;
+      --accent: #5b8def;
+      --accent-hover: #4a7adf;
+      --green: #2ecc71;
+      --yellow: #f1c40f;
+      --red: #e74c3c;
+      --shadow: 0 6px 30px rgba(0, 0, 0, 0.35);
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+        Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+      line-height: 1.45;
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 32px 24px 80px;
+    }
+
+    header h1 {
+      margin: 0 0 6px;
+      font-size: 26px;
+      letter-spacing: -0.01em;
+    }
+
+    header p {
+      margin: 0 0 24px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .drop-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .drop-zone {
+      background: var(--panel);
+      border: 1.5px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      min-height: 130px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease, transform 0.06s ease;
+    }
+
+    .drop-zone:hover { border-color: var(--accent); }
+    .drop-zone.dragover {
+      border-color: var(--accent);
+      background: rgba(91, 141, 239, 0.08);
+    }
+    .drop-zone.has-file { border-style: solid; }
+    .drop-zone.error { border-color: var(--red); background: rgba(231, 76, 60, 0.07); }
+
+    .drop-zone h3 {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .drop-zone .hint { color: var(--muted); font-size: 13px; }
+    .drop-zone .filename { font-size: 14px; color: var(--text); word-break: break-all; }
+    .drop-zone .meta { font-size: 12px; color: var(--muted); }
+    .drop-zone .err { color: var(--red); font-size: 13px; }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    button {
+      background: var(--accent);
+      color: white;
+      border: 0;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    button:hover:not(:disabled) { background: var(--accent-hover); }
+    button:disabled { background: #333a4a; color: #6b7280; cursor: not-allowed; }
+    button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    button.secondary:hover:not(:disabled) { background: var(--panel-2); }
+
+    details.thresholds {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      margin-bottom: 24px;
+    }
+    details.thresholds summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .threshold-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .threshold-grid label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .threshold-grid input {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    .insights {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .insight {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    .insight .label {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .insight .value { font-size: 18px; margin-top: 6px; font-weight: 600; }
+    .insight .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    .health-pills { display: flex; gap: 8px; margin-top: 6px; }
+    .pill {
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #0f1115;
+    }
+    .pill.green { background: var(--green); }
+    .pill.yellow { background: var(--yellow); }
+    .pill.red { background: var(--red); color: white; }
+
+    .canvas-wrap {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+    canvas#dashboard {
+      width: 100%;
+      height: auto;
+      display: block;
+      background: white;
+      border-radius: 8px;
+    }
+
+    .table-wrap {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    thead th {
+      background: var(--panel-2);
+      text-align: left;
+      padding: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr.row-green { background: rgba(46, 204, 113, 0.08); }
+    tbody tr.row-yellow { background: rgba(241, 196, 15, 0.08); }
+    tbody tr.row-red { background: rgba(231, 76, 60, 0.10); }
+    td .status {
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #0f1115;
+    }
+    td .status.GREEN { background: var(--green); }
+    td .status.YELLOW { background: var(--yellow); }
+    td .status.RED { background: var(--red); color: white; }
+
+    .hidden { display: none !important; }
+
+    footer {
+      margin-top: 24px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>GPT Rollout Health Dashboard</h1>
+      <p>Drop the Pinot latency CSV and the MySQL adoption CSV. Everything runs in your browser — no uploads, no servers.</p>
+    </header>
+
+    <section class="drop-row">
+      <label class="drop-zone" id="dropPinot" data-kind="pinot">
+        <h3>Pinot latency CSV</h3>
+        <div class="filename hint" data-empty>Drag & drop or click to choose</div>
+        <div class="meta">Required columns: brand_id, total_requests, avg_ttfb_ms, p50_ttfb_ms, p95_ttfb_ms, p99_ttfb_ms</div>
+        <div class="err hidden"></div>
+        <input type="file" accept=".csv,text/csv" hidden />
+      </label>
+
+      <label class="drop-zone" id="dropMysql" data-kind="mysql">
+        <h3>MySQL adoption CSV</h3>
+        <div class="filename hint" data-empty>Drag & drop or click to choose</div>
+        <div class="meta">Required columns: brand_id, brand_name, total_sessions, total_utterances, avg_utterances_per_session</div>
+        <div class="err hidden"></div>
+        <input type="file" accept=".csv,text/csv" hidden />
+      </label>
+    </section>
+
+    <details class="thresholds">
+      <summary>Health thresholds (ms)</summary>
+      <div class="threshold-grid">
+        <label>p95 GREEN max<input id="thP95Green" type="number" value="5000" min="0" step="100" /></label>
+        <label>p95 RED min<input id="thP95Red" type="number" value="8000" min="0" step="100" /></label>
+        <label>p99 GREEN max<input id="thP99Green" type="number" value="8000" min="0" step="100" /></label>
+        <label>p99 RED min<input id="thP99Red" type="number" value="15000" min="0" step="100" /></label>
+      </div>
+    </details>
+
+    <div class="controls">
+      <button id="btnGenerate" disabled>Generate dashboard</button>
+      <button id="btnDownloadReportPng" disabled>Download report (PNG)</button>
+      <button id="btnDownloadReportHtml" class="secondary" disabled>Download report (HTML)</button>
+      <button id="btnDownloadPng" class="secondary" disabled>Download charts only (PNG)</button>
+      <button id="btnDownloadCsv" class="secondary" disabled>Download merged_metrics.csv</button>
+      <button id="btnReset" class="secondary">Reset</button>
+    </div>
+
+    <section id="results" class="hidden">
+      <div class="insights" id="insights"></div>
+
+      <div class="canvas-wrap">
+        <canvas id="dashboard" width="1600" height="1080"></canvas>
+      </div>
+
+      <div class="table-wrap">
+        <table id="summaryTable">
+          <thead>
+            <tr>
+              <th>Brand</th>
+              <th>Total sessions</th>
+              <th>Avg utterances / session</th>
+              <th>Total requests</th>
+              <th>p50 TTFB (ms)</th>
+              <th>p95 TTFB (ms)</th>
+              <th>p99 TTFB (ms)</th>
+              <th>Health</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer>Runs entirely client-side. CSVs never leave your browser.</footer>
+  </div>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ */
+/* Constants — must match scripts/gpt_rollout_health_dashboard.py     */
+/* ------------------------------------------------------------------ */
+
+const PINOT_REQUIRED = [
+  "brand_id", "total_requests", "avg_ttfb_ms",
+  "p50_ttfb_ms", "p95_ttfb_ms", "p99_ttfb_ms",
+];
+const MYSQL_REQUIRED = [
+  "brand_id", "brand_name", "total_sessions",
+  "total_utterances", "avg_utterances_per_session",
+];
+const SUMMARY_COLUMNS = [
+  "brand_name", "total_sessions", "avg_utterances_per_session",
+  "total_requests", "p50_ttfb_ms", "p95_ttfb_ms",
+  "p99_ttfb_ms", "health_status",
+];
+const HEALTH_COLORS = { GREEN: "#2ecc71", YELLOW: "#f1c40f", RED: "#e74c3c" };
+
+const state = {
+  pinotRows: null,
+  mysqlRows: null,
+  pinotName: null,
+  mysqlName: null,
+  summary: null,
+  insights: null,
+};
+
+/* ------------------------------------------------------------------ */
+/* CSV parsing — handles quoted fields and CRLF/LF                    */
+/* ------------------------------------------------------------------ */
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      row.push(field); field = "";
+    } else if (ch === "\n") {
+      row.push(field); field = "";
+      rows.push(row); row = [];
+    } else if (ch === "\r") {
+      // Swallow; \n will close the row.
+    } else {
+      field += ch;
+    }
+  }
+  // Flush the trailing partial row if any content exists.
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  if (rows.length === 0) return [];
+  const header = rows[0].map((h) => h.trim());
+  return rows.slice(1)
+    .filter((r) => r.length > 0 && !(r.length === 1 && r[0].trim() === ""))
+    .map((r) => {
+      const obj = {};
+      header.forEach((key, idx) => { obj[key] = (r[idx] ?? "").trim(); });
+      return obj;
+    });
+}
+
+function validateColumns(rows, required, source) {
+  if (rows.length === 0) throw new Error(`${source} appears empty.`);
+  const present = new Set(Object.keys(rows[0]));
+  const missing = required.filter((c) => !present.has(c));
+  if (missing.length > 0) {
+    throw new Error(`${source} is missing required columns: ${missing.join(", ")}`);
+  }
+}
+
+function toNumber(value) {
+  if (value === undefined || value === null || value === "") return NaN;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/* ------------------------------------------------------------------ */
+/* Merge + health classification                                      */
+/* ------------------------------------------------------------------ */
+
+function mergeOnBrandId(pinot, mysql) {
+  const mysqlByBrand = new Map();
+  for (const row of mysql) mysqlByBrand.set(row.brand_id, row);
+  const merged = [];
+  for (const p of pinot) {
+    const m = mysqlByBrand.get(p.brand_id);
+    if (!m) continue;
+    merged.push({
+      brand_id: p.brand_id,
+      brand_name: m.brand_name,
+      total_sessions: toNumber(m.total_sessions),
+      total_utterances: toNumber(m.total_utterances),
+      avg_utterances_per_session: toNumber(m.avg_utterances_per_session),
+      total_requests: toNumber(p.total_requests),
+      avg_ttfb_ms: toNumber(p.avg_ttfb_ms),
+      p50_ttfb_ms: toNumber(p.p50_ttfb_ms),
+      p95_ttfb_ms: toNumber(p.p95_ttfb_ms),
+      p99_ttfb_ms: toNumber(p.p99_ttfb_ms),
+    });
+  }
+  if (merged.length === 0) {
+    throw new Error("No matching brand_id values between the Pinot and MySQL CSV inputs.");
+  }
+  return merged;
+}
+
+function classifyHealth(p95, p99, t) {
+  if (Number.isNaN(p95) || Number.isNaN(p99)) return "YELLOW";
+  if (p95 > t.p95RedMin || p99 > t.p99RedMin) return "RED";
+  if (p95 < t.p95GreenMax && p99 < t.p99GreenMax) return "GREEN";
+  return "YELLOW";
+}
+
+function buildSummary(merged, thresholds) {
+  const enriched = merged.map((row) => ({
+    ...row,
+    health_status: classifyHealth(row.p95_ttfb_ms, row.p99_ttfb_ms, thresholds),
+  }));
+  // Sort by p95 descending so the slowest brand sits at the top.
+  enriched.sort((a, b) => {
+    const av = Number.isNaN(a.p95_ttfb_ms) ? -Infinity : a.p95_ttfb_ms;
+    const bv = Number.isNaN(b.p95_ttfb_ms) ? -Infinity : b.p95_ttfb_ms;
+    return bv - av;
+  });
+  return enriched;
+}
+
+function computeInsights(summary) {
+  if (summary.length === 0) {
+    return { slowest: null, mostAdopted: null, healthiest: null,
+             greenCount: 0, yellowCount: 0, redCount: 0 };
+  }
+  const finite = (key) => (a) => Number.isFinite(a[key]);
+
+  const slowestPool = summary.filter(finite("p95_ttfb_ms"));
+  const slowest = slowestPool.length
+    ? slowestPool.reduce((a, b) => (a.p95_ttfb_ms >= b.p95_ttfb_ms ? a : b))
+    : null;
+
+  const adoptedPool = summary.filter(finite("total_sessions"));
+  const mostAdopted = adoptedPool.length
+    ? adoptedPool.reduce((a, b) => (a.total_sessions >= b.total_sessions ? a : b))
+    : null;
+
+  // Prefer GREEN brands; if none, fall back to lowest-p95 overall.
+  const greens = summary.filter((r) => r.health_status === "GREEN" && finite("p95_ttfb_ms")(r));
+  const healthiestPool = greens.length ? greens : summary.filter(finite("p95_ttfb_ms"));
+  const healthiest = healthiestPool.length
+    ? healthiestPool.reduce((a, b) => (a.p95_ttfb_ms <= b.p95_ttfb_ms ? a : b))
+    : null;
+
+  let greenCount = 0, yellowCount = 0, redCount = 0;
+  for (const r of summary) {
+    if (r.health_status === "GREEN") greenCount++;
+    else if (r.health_status === "YELLOW") yellowCount++;
+    else if (r.health_status === "RED") redCount++;
+  }
+  return { slowest, mostAdopted, healthiest, greenCount, yellowCount, redCount };
+}
+
+/* ------------------------------------------------------------------ */
+/* Canvas dashboard drawing                                           */
+/* ------------------------------------------------------------------ */
+
+function niceMax(value) {
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  const exponent = Math.pow(10, Math.floor(Math.log10(value)));
+  const fraction = value / exponent;
+  let niceFraction;
+  if (fraction <= 1) niceFraction = 1;
+  else if (fraction <= 2) niceFraction = 2;
+  else if (fraction <= 5) niceFraction = 5;
+  else niceFraction = 10;
+  return niceFraction * exponent;
+}
+
+function formatNumber(value) {
+  if (!Number.isFinite(value)) return "—";
+  return Math.round(value).toLocaleString();
+}
+
+function drawTextRotated(ctx, text, x, y, angleDeg) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate((angleDeg * Math.PI) / 180);
+  ctx.fillText(text, 0, 0);
+  ctx.restore();
+}
+
+function drawBarChart(ctx, opts) {
+  const { rect, title, xLabel, yLabel, labels, values, colors } = opts;
+  const padding = { top: 50, right: 20, bottom: 110, left: 80 };
+  const plotX = rect.x + padding.left;
+  const plotY = rect.y + padding.top;
+  const plotW = rect.w - padding.left - padding.right;
+  const plotH = rect.h - padding.top - padding.bottom;
+
+  ctx.fillStyle = "#1f2530";
+  ctx.font = "bold 18px -apple-system, Segoe UI, Roboto, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(title, rect.x + padding.left, rect.y + 28);
+
+  const maxVal = niceMax(Math.max(1, ...values.filter((v) => Number.isFinite(v))));
+  const ticks = 5;
+
+  ctx.strokeStyle = "#e5e7eb";
+  ctx.fillStyle = "#6b7280";
+  ctx.font = "12px -apple-system, Segoe UI, Roboto, sans-serif";
+  ctx.lineWidth = 1;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  for (let i = 0; i <= ticks; i++) {
+    const value = (maxVal * i) / ticks;
+    const yPos = plotY + plotH - (plotH * i) / ticks;
+    ctx.strokeStyle = i === 0 ? "#9ca3af" : "#eef0f4";
+    ctx.beginPath();
+    ctx.moveTo(plotX, yPos);
+    ctx.lineTo(plotX + plotW, yPos);
+    ctx.stroke();
+    ctx.fillStyle = "#6b7280";
+    ctx.fillText(formatNumber(value), plotX - 8, yPos);
+  }
+
+  ctx.strokeStyle = "#9ca3af";
+  ctx.beginPath();
+  ctx.moveTo(plotX, plotY);
+  ctx.lineTo(plotX, plotY + plotH);
+  ctx.stroke();
+
+  const slots = labels.length;
+  const slotW = plotW / Math.max(slots, 1);
+  const barW = Math.min(slotW * 0.7, 80);
+
+  for (let i = 0; i < slots; i++) {
+    const value = Number.isFinite(values[i]) ? values[i] : 0;
+    const barH = (value / maxVal) * plotH;
+    const cx = plotX + slotW * (i + 0.5);
+    const barX = cx - barW / 2;
+    const barY = plotY + plotH - barH;
+    ctx.fillStyle = colors[i] || "#7f8c8d";
+    ctx.fillRect(barX, barY, barW, barH);
+
+    ctx.fillStyle = "#1f2530";
+    ctx.font = "12px -apple-system, Segoe UI, Roboto, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    if (barH > 18) {
+      ctx.fillStyle = "#0f1115";
+      ctx.fillText(formatNumber(value), cx, barY + 14);
+    } else {
+      ctx.fillStyle = "#1f2530";
+      ctx.fillText(formatNumber(value), cx, barY - 4);
+    }
+
+    ctx.fillStyle = "#374151";
+    ctx.font = "12px -apple-system, Segoe UI, Roboto, sans-serif";
+    ctx.textAlign = "right";
+    drawTextRotated(ctx, labels[i], cx, plotY + plotH + 10, -35);
+  }
+
+  ctx.fillStyle = "#374151";
+  ctx.font = "13px -apple-system, Segoe UI, Roboto, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(xLabel, plotX + plotW / 2, rect.y + rect.h - 6);
+
+  ctx.save();
+  ctx.translate(rect.x + 22, plotY + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = "center";
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+}
+
+function drawScatter(ctx, opts) {
+  const { rect, title, xLabel, yLabel, points } = opts;
+  const padding = { top: 50, right: 30, bottom: 70, left: 80 };
+  const plotX = rect.x + padding.left;
+  const plotY = rect.y + padding.top;
+  const plotW = rect.w - padding.left - padding.right;
+  const plotH = rect.h - padding.top - padding.bottom;
+
+  ctx.fillStyle = "#1f2530";
+  ctx.font = "bold 18px -apple-system, Segoe UI, Roboto, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(title, rect.x + padding.left, rect.y + 28);
+
+  const xs = points.map((p) => p.x).filter(Number.isFinite);
+  const ys = points.map((p) => p.y).filter(Number.isFinite);
+  const xMax = niceMax(Math.max(1, ...xs));
+  const yMax = niceMax(Math.max(1, ...ys));
+  const ticks = 5;
+
+  ctx.font = "12px -apple-system, Segoe UI, Roboto, sans-serif";
+  ctx.fillStyle = "#6b7280";
+
+  for (let i = 0; i <= ticks; i++) {
+    const yVal = (yMax * i) / ticks;
+    const yPos = plotY + plotH - (plotH * i) / ticks;
+    ctx.strokeStyle = i === 0 ? "#9ca3af" : "#eef0f4";
+    ctx.beginPath();
+    ctx.moveTo(plotX, yPos);
+    ctx.lineTo(plotX + plotW, yPos);
+    ctx.stroke();
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#6b7280";
+    ctx.fillText(formatNumber(yVal), plotX - 8, yPos);
+  }
+
+  for (let i = 0; i <= ticks; i++) {
+    const xVal = (xMax * i) / ticks;
+    const xPos = plotX + (plotW * i) / ticks;
+    ctx.strokeStyle = "#eef0f4";
+    ctx.beginPath();
+    ctx.moveTo(xPos, plotY);
+    ctx.lineTo(xPos, plotY + plotH);
+    ctx.stroke();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "#6b7280";
+    ctx.fillText(formatNumber(xVal), xPos, plotY + plotH + 6);
+  }
+
+  ctx.strokeStyle = "#9ca3af";
+  ctx.beginPath();
+  ctx.moveTo(plotX, plotY);
+  ctx.lineTo(plotX, plotY + plotH);
+  ctx.lineTo(plotX + plotW, plotY + plotH);
+  ctx.stroke();
+
+  for (const p of points) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+    const cx = plotX + (p.x / xMax) * plotW;
+    const cy = plotY + plotH - (p.y / yMax) * plotH;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#111827";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = "#1f2937";
+    ctx.font = "12px -apple-system, Segoe UI, Roboto, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(p.label, cx + 12, cy - 8);
+  }
+
+  ctx.fillStyle = "#374151";
+  ctx.font = "13px -apple-system, Segoe UI, Roboto, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(xLabel, plotX + plotW / 2, rect.y + rect.h - 14);
+
+  ctx.save();
+  ctx.translate(rect.x + 22, plotY + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+}
+
+function drawLegend(ctx, x, y) {
+  const items = [
+    { label: "GREEN", color: HEALTH_COLORS.GREEN },
+    { label: "YELLOW", color: HEALTH_COLORS.YELLOW },
+    { label: "RED", color: HEALTH_COLORS.RED },
+  ];
+  ctx.font = "13px -apple-system, Segoe UI, Roboto, sans-serif";
+  ctx.textBaseline = "middle";
+  let cursorX = x;
+  for (const item of items) {
+    ctx.fillStyle = item.color;
+    ctx.fillRect(cursorX, y - 8, 16, 16);
+    ctx.fillStyle = "#1f2937";
+    ctx.textAlign = "left";
+    ctx.fillText(item.label, cursorX + 22, y);
+    cursorX += 100;
+  }
+}
+
+function drawDashboardCharts(ctx, summary, originX, originY, width, height, options) {
+  const opts = options || {};
+  const showTitle = opts.showTitle !== false;
+
+  const colors = summary.map((r) => HEALTH_COLORS[r.health_status] || "#7f8c8d");
+  const labels = summary.map((r) => String(r.brand_name));
+
+  let cursorY = originY;
+
+  if (showTitle) {
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "bold 24px -apple-system, Segoe UI, Roboto, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText("GPT Rollout Health Dashboard", originX + width / 2, cursorY + 36);
+    drawLegend(ctx, originX + width / 2 - 145, cursorY + 64);
+    cursorY += 92;
+  } else {
+    drawLegend(ctx, originX + width / 2 - 145, cursorY + 18);
+    cursorY += 36;
+  }
+
+  // Top row: two side-by-side bar charts.
+  const topH = Math.round((height - (cursorY - originY)) * 0.45);
+  const halfW = width / 2;
+
+  drawBarChart(ctx, {
+    rect: { x: originX, y: cursorY, w: halfW, h: topH },
+    title: "p95 TTFB (ms) by brand",
+    xLabel: "Brand",
+    yLabel: "p95 TTFB (ms)",
+    labels,
+    values: summary.map((r) => r.p95_ttfb_ms),
+    colors,
+  });
+
+  drawBarChart(ctx, {
+    rect: { x: originX + halfW, y: cursorY, w: halfW, h: topH },
+    title: "Total sessions by brand",
+    xLabel: "Brand",
+    yLabel: "Total sessions",
+    labels,
+    values: summary.map((r) => r.total_sessions),
+    colors,
+  });
+
+  cursorY += topH + 10;
+
+  // Bottom: full-width scatter taking the remaining vertical space.
+  drawScatter(ctx, {
+    rect: { x: originX, y: cursorY, w: width, h: originY + height - cursorY - 10 },
+    title: "Adoption vs latency (sessions vs p95 TTFB)",
+    xLabel: "Total sessions",
+    yLabel: "p95 TTFB (ms)",
+    points: summary.map((r) => ({
+      x: r.total_sessions,
+      y: r.p95_ttfb_ms,
+      label: String(r.brand_name),
+      color: HEALTH_COLORS[r.health_status] || "#7f8c8d",
+    })),
+  });
+}
+
+function renderDashboard(summary) {
+  const canvas = document.getElementById("dashboard");
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawDashboardCharts(ctx, summary, 0, 0, canvas.width, canvas.height, { showTitle: true });
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+function drawPill(ctx, text, x, y, opts) {
+  const { bg, fg } = opts;
+  ctx.font = "bold 13px -apple-system, Segoe UI, Roboto, sans-serif";
+  const textW = ctx.measureText(text).width;
+  const padX = 12;
+  const h = 24;
+  const w = textW + padX * 2;
+  ctx.fillStyle = bg;
+  roundRectPath(ctx, x, y, w, h, 999);
+  ctx.fill();
+  ctx.fillStyle = fg;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, x + w / 2, y + h / 2 + 1);
+  return w;
+}
+
+function drawInsightCards(ctx, insights, x, y, totalWidth, cardHeight) {
+  const gap = 16;
+  const cardWidth = (totalWidth - gap * 3) / 4;
+  const cards = [
+    { type: "pills", label: "Health mix" },
+    {
+      type: "kv",
+      label: "Slowest brand",
+      value: insights.slowest ? insights.slowest.brand_name : "—",
+      sub: insights.slowest ? `p95 ${fmtMs(insights.slowest.p95_ttfb_ms)}` : "",
+    },
+    {
+      type: "kv",
+      label: "Most adopted",
+      value: insights.mostAdopted ? insights.mostAdopted.brand_name : "—",
+      sub: insights.mostAdopted ? `${fmtCount(insights.mostAdopted.total_sessions)} sessions` : "",
+    },
+    {
+      type: "kv",
+      label: "Healthiest brand",
+      value: insights.healthiest ? insights.healthiest.brand_name : "—",
+      sub: insights.healthiest ? `p95 ${fmtMs(insights.healthiest.p95_ttfb_ms)}` : "",
+    },
+  ];
+
+  for (let i = 0; i < cards.length; i++) {
+    const cardX = x + (cardWidth + gap) * i;
+    ctx.fillStyle = "#f8fafc";
+    roundRectPath(ctx, cardX, y, cardWidth, cardHeight, 12);
+    ctx.fill();
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = "#6b7280";
+    ctx.font = "11px -apple-system, Segoe UI, Roboto, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(cards[i].label.toUpperCase(), cardX + 18, y + 26);
+
+    if (cards[i].type === "pills") {
+      let pillX = cardX + 18;
+      const pillY = y + 46;
+      const pills = [
+        { text: `GREEN ${insights.greenCount}`, bg: HEALTH_COLORS.GREEN, fg: "#0f1115" },
+        { text: `YELLOW ${insights.yellowCount}`, bg: HEALTH_COLORS.YELLOW, fg: "#0f1115" },
+        { text: `RED ${insights.redCount}`, bg: HEALTH_COLORS.RED, fg: "white" },
+      ];
+      for (const p of pills) {
+        const w = drawPill(ctx, p.text, pillX, pillY, { bg: p.bg, fg: p.fg });
+        pillX += w + 8;
+      }
+    } else {
+      ctx.fillStyle = "#0f172a";
+      ctx.font = "bold 18px -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+      const text = String(cards[i].value);
+      const maxTextWidth = cardWidth - 36;
+      ctx.fillText(truncateToWidth(ctx, text, maxTextWidth), cardX + 18, y + 56);
+
+      ctx.fillStyle = "#6b7280";
+      ctx.font = "12px -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.fillText(cards[i].sub, cardX + 18, y + 78);
+    }
+  }
+}
+
+function truncateToWidth(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const ellipsis = "…";
+  let lo = 0, hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    const candidate = text.slice(0, mid) + ellipsis;
+    if (ctx.measureText(candidate).width <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return text.slice(0, lo) + ellipsis;
+}
+
+function drawSummaryTable(ctx, summary, x, y, totalWidth) {
+  const headerH = 42;
+  const rowH = 34;
+  // Column weights add up to 1.0; tweak to balance brand-name vs numeric columns.
+  const columns = [
+    { key: "brand_name", label: "Brand", weight: 0.20, align: "left" },
+    { key: "total_sessions", label: "Sessions", weight: 0.11, align: "right" },
+    { key: "avg_utterances_per_session", label: "Avg utt/session", weight: 0.13, align: "right" },
+    { key: "total_requests", label: "Requests", weight: 0.11, align: "right" },
+    { key: "p50_ttfb_ms", label: "p50 (ms)", weight: 0.10, align: "right" },
+    { key: "p95_ttfb_ms", label: "p95 (ms)", weight: 0.10, align: "right" },
+    { key: "p99_ttfb_ms", label: "p99 (ms)", weight: 0.10, align: "right" },
+    { key: "health_status", label: "Health", weight: 0.15, align: "center" },
+  ];
+  const widths = columns.map((c) => c.weight * totalWidth);
+  const xs = [];
+  let cursor = x;
+  for (const w of widths) { xs.push(cursor); cursor += w; }
+
+  // Header bar.
+  ctx.fillStyle = "#1f2937";
+  roundRectPath(ctx, x, y, totalWidth, headerH, 8);
+  ctx.fill();
+  ctx.fillStyle = "#e5e7eb";
+  ctx.font = "bold 12px -apple-system, Segoe UI, Roboto, sans-serif";
+  ctx.textBaseline = "middle";
+  for (let i = 0; i < columns.length; i++) {
+    const col = columns[i];
+    const cellX = xs[i];
+    const cellW = widths[i];
+    ctx.textAlign = col.align === "right" ? "right" : col.align === "center" ? "center" : "left";
+    const textX =
+      col.align === "right" ? cellX + cellW - 14
+      : col.align === "center" ? cellX + cellW / 2
+      : cellX + 14;
+    ctx.fillText(col.label.toUpperCase(), textX, y + headerH / 2);
+  }
+
+  const rowBg = {
+    GREEN: "rgba(46, 204, 113, 0.10)",
+    YELLOW: "rgba(241, 196, 15, 0.10)",
+    RED: "rgba(231, 76, 60, 0.12)",
+  };
+
+  for (let r = 0; r < summary.length; r++) {
+    const row = summary[r];
+    const rowY = y + headerH + r * rowH;
+    ctx.fillStyle = rowBg[row.health_status] || "rgba(0,0,0,0.02)";
+    ctx.fillRect(x, rowY, totalWidth, rowH);
+    ctx.strokeStyle = "#e5e7eb";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, rowY + rowH);
+    ctx.lineTo(x + totalWidth, rowY + rowH);
+    ctx.stroke();
+
+    for (let i = 0; i < columns.length; i++) {
+      const col = columns[i];
+      const cellX = xs[i];
+      const cellW = widths[i];
+      const centerY = rowY + rowH / 2;
+
+      if (col.key === "health_status") {
+        const pillBg = HEALTH_COLORS[row.health_status] || "#7f8c8d";
+        const pillFg = row.health_status === "RED" ? "white" : "#0f1115";
+        ctx.font = "bold 12px -apple-system, Segoe UI, Roboto, sans-serif";
+        const labelText = row.health_status;
+        const textW = ctx.measureText(labelText).width;
+        const pillW = textW + 22;
+        const pillH = 22;
+        const pillX = cellX + (cellW - pillW) / 2;
+        const pillY = centerY - pillH / 2;
+        ctx.fillStyle = pillBg;
+        roundRectPath(ctx, pillX, pillY, pillW, pillH, 999);
+        ctx.fill();
+        ctx.fillStyle = pillFg;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(labelText, pillX + pillW / 2, pillY + pillH / 2 + 1);
+        continue;
+      }
+
+      let text;
+      if (col.key === "brand_name") {
+        text = truncateToWidth(ctx, String(row.brand_name), cellW - 24);
+      } else if (col.key === "avg_utterances_per_session") {
+        text = Number.isFinite(row[col.key]) ? row[col.key].toFixed(2) : "—";
+      } else {
+        text = fmtCount(row[col.key]);
+      }
+
+      ctx.fillStyle = "#1f2937";
+      ctx.font = "13px -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.textAlign = col.align === "right" ? "right" : "left";
+      ctx.textBaseline = "middle";
+      const textX = col.align === "right" ? cellX + cellW - 14 : cellX + 14;
+      ctx.fillText(text, textX, centerY);
+    }
+  }
+
+  return headerH + summary.length * rowH;
+}
+
+function renderReportCanvas(summary, insights) {
+  const width = 1600;
+  const marginX = 40;
+  const headerH = 110;
+  const insightH = 130;
+  const chartsH = 1100;
+  const gap = 28;
+
+  const probe = document.createElement("canvas").getContext("2d");
+  const tableHeaderH = 42;
+  const tableRowH = 34;
+  const tableHeight = tableHeaderH + summary.length * tableRowH + 20;
+  void probe;
+
+  const footerH = 32;
+  const height = headerH + gap + insightH + gap + tableHeight + gap + chartsH + footerH;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, width, height);
+
+  // Header: title + UTC timestamp + thresholds line.
+  let cursorY = 36;
+  ctx.fillStyle = "#0f172a";
+  ctx.font = "bold 28px -apple-system, Segoe UI, Roboto, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText("GPT Rollout Health Report", marginX, cursorY);
+
+  cursorY += 24;
+  ctx.fillStyle = "#6b7280";
+  ctx.font = "13px -apple-system, Segoe UI, Roboto, sans-serif";
+  const stamp = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
+  const t = readThresholds();
+  ctx.fillText(
+    `Generated ${stamp}  •  ${summary.length} brands  •  thresholds: ` +
+      `p95 GREEN<${t.p95GreenMax}, RED>${t.p95RedMin} | p99 GREEN<${t.p99GreenMax}, RED>${t.p99RedMin}`,
+    marginX,
+    cursorY
+  );
+
+  let y = headerH;
+
+  drawInsightCards(ctx, insights, marginX, y, width - marginX * 2, insightH);
+  y += insightH + gap;
+
+  drawSummaryTable(ctx, summary, marginX, y, width - marginX * 2);
+  y += tableHeight + gap;
+
+  drawDashboardCharts(ctx, summary, 0, y, width, chartsH, { showTitle: false });
+
+  ctx.fillStyle = "#9aa4b2";
+  ctx.font = "11px -apple-system, Segoe UI, Roboto, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(
+    "Generated client-side from Pinot + MySQL CSV exports. No data leaves the browser.",
+    width / 2,
+    height - 14
+  );
+
+  return canvas;
+}
+
+/* ------------------------------------------------------------------ */
+/* DOM rendering                                                      */
+/* ------------------------------------------------------------------ */
+
+function fmtMs(value) { return Number.isFinite(value) ? `${Math.round(value).toLocaleString()} ms` : "—"; }
+function fmtCount(value) { return Number.isFinite(value) ? Math.round(value).toLocaleString() : "—"; }
+
+function renderInsights(insights) {
+  const container = document.getElementById("insights");
+  const cards = [
+    {
+      label: "Health mix",
+      html: `<div class="health-pills">
+        <span class="pill green">GREEN ${insights.greenCount}</span>
+        <span class="pill yellow">YELLOW ${insights.yellowCount}</span>
+        <span class="pill red">RED ${insights.redCount}</span>
+      </div>`,
+    },
+    {
+      label: "Slowest brand",
+      value: insights.slowest ? insights.slowest.brand_name : "—",
+      sub: insights.slowest ? `p95 ${fmtMs(insights.slowest.p95_ttfb_ms)}` : "",
+    },
+    {
+      label: "Most adopted",
+      value: insights.mostAdopted ? insights.mostAdopted.brand_name : "—",
+      sub: insights.mostAdopted ? `${fmtCount(insights.mostAdopted.total_sessions)} sessions` : "",
+    },
+    {
+      label: "Healthiest brand",
+      value: insights.healthiest ? insights.healthiest.brand_name : "—",
+      sub: insights.healthiest ? `p95 ${fmtMs(insights.healthiest.p95_ttfb_ms)}` : "",
+    },
+  ];
+  container.innerHTML = cards.map((c) => `
+    <div class="insight">
+      <div class="label">${c.label}</div>
+      ${c.html ?? `<div class="value">${c.value}</div><div class="sub">${c.sub ?? ""}</div>`}
+    </div>
+  `).join("");
+}
+
+function renderTable(summary) {
+  const tbody = document.querySelector("#summaryTable tbody");
+  tbody.innerHTML = summary.map((row) => `
+    <tr class="row-${row.health_status.toLowerCase()}">
+      <td>${escapeHtml(row.brand_name)}</td>
+      <td>${fmtCount(row.total_sessions)}</td>
+      <td>${Number.isFinite(row.avg_utterances_per_session) ? row.avg_utterances_per_session.toFixed(2) : "—"}</td>
+      <td>${fmtCount(row.total_requests)}</td>
+      <td>${fmtCount(row.p50_ttfb_ms)}</td>
+      <td>${fmtCount(row.p95_ttfb_ms)}</td>
+      <td>${fmtCount(row.p99_ttfb_ms)}</td>
+      <td><span class="status ${row.health_status}">${row.health_status}</span></td>
+    </tr>
+  `).join("");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/* ------------------------------------------------------------------ */
+/* Drop-zone wiring                                                   */
+/* ------------------------------------------------------------------ */
+
+function setDropZoneError(zoneEl, message) {
+  const err = zoneEl.querySelector(".err");
+  if (message) {
+    zoneEl.classList.add("error");
+    err.textContent = message;
+    err.classList.remove("hidden");
+  } else {
+    zoneEl.classList.remove("error");
+    err.textContent = "";
+    err.classList.add("hidden");
+  }
+}
+
+function setDropZoneFile(zoneEl, filename, rowCount) {
+  const fnEl = zoneEl.querySelector(".filename");
+  fnEl.textContent = filename;
+  fnEl.classList.remove("hint");
+  fnEl.removeAttribute("data-empty");
+  zoneEl.classList.add("has-file");
+  const meta = zoneEl.querySelector(".meta");
+  meta.textContent = `${rowCount} row${rowCount === 1 ? "" : "s"} loaded`;
+}
+
+async function handleFile(zoneEl, file) {
+  const kind = zoneEl.dataset.kind;
+  setDropZoneError(zoneEl, "");
+  try {
+    const text = await file.text();
+    const rows = parseCsv(text);
+    if (kind === "pinot") {
+      validateColumns(rows, PINOT_REQUIRED, "Pinot CSV");
+      state.pinotRows = rows;
+      state.pinotName = file.name;
+    } else {
+      validateColumns(rows, MYSQL_REQUIRED, "MySQL CSV");
+      state.mysqlRows = rows;
+      state.mysqlName = file.name;
+    }
+    setDropZoneFile(zoneEl, file.name, rows.length);
+    refreshButtons();
+  } catch (err) {
+    setDropZoneError(zoneEl, err.message || String(err));
+    if (kind === "pinot") { state.pinotRows = null; state.pinotName = null; }
+    else { state.mysqlRows = null; state.mysqlName = null; }
+    refreshButtons();
+  }
+}
+
+function wireDropZone(zoneEl) {
+  const input = zoneEl.querySelector('input[type="file"]');
+  zoneEl.addEventListener("click", (event) => {
+    if (event.target !== input) input.click();
+  });
+  input.addEventListener("change", () => {
+    if (input.files && input.files[0]) handleFile(zoneEl, input.files[0]);
+  });
+  ["dragenter", "dragover"].forEach((evt) => {
+    zoneEl.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      zoneEl.classList.add("dragover");
+    });
+  });
+  ["dragleave", "drop"].forEach((evt) => {
+    zoneEl.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      zoneEl.classList.remove("dragover");
+    });
+  });
+  zoneEl.addEventListener("drop", (e) => {
+    const file = e.dataTransfer?.files?.[0];
+    if (file) handleFile(zoneEl, file);
+  });
+}
+
+function refreshButtons() {
+  const ready = !!(state.pinotRows && state.mysqlRows);
+  document.getElementById("btnGenerate").disabled = !ready;
+}
+
+function readThresholds() {
+  return {
+    p95GreenMax: Number(document.getElementById("thP95Green").value) || 5000,
+    p95RedMin: Number(document.getElementById("thP95Red").value) || 8000,
+    p99GreenMax: Number(document.getElementById("thP99Green").value) || 8000,
+    p99RedMin: Number(document.getElementById("thP99Red").value) || 15000,
+  };
+}
+
+function generate() {
+  try {
+    const merged = mergeOnBrandId(state.pinotRows, state.mysqlRows);
+    const summary = buildSummary(merged, readThresholds());
+    const insights = computeInsights(summary);
+    state.summary = summary;
+    state.insights = insights;
+
+    renderInsights(insights);
+    renderTable(summary);
+    renderDashboard(summary);
+
+    document.getElementById("results").classList.remove("hidden");
+    document.getElementById("btnDownloadReportPng").disabled = false;
+    document.getElementById("btnDownloadReportHtml").disabled = false;
+    document.getElementById("btnDownloadPng").disabled = false;
+    document.getElementById("btnDownloadCsv").disabled = false;
+  } catch (err) {
+    alert(err.message || String(err));
+  }
+}
+
+function triggerDownload(href, filename) {
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = href;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function downloadPng() {
+  const canvas = document.getElementById("dashboard");
+  triggerDownload(canvas.toDataURL("image/png"), "dashboard.png");
+}
+
+function downloadReportPng() {
+  if (!state.summary || !state.insights) return;
+  const canvas = renderReportCanvas(state.summary, state.insights);
+  // toBlob keeps memory bounded for the very tall image; fall back to dataURL on failure.
+  canvas.toBlob((blob) => {
+    if (!blob) {
+      triggerDownload(canvas.toDataURL("image/png"), "gpt_rollout_report.png");
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    triggerDownload(url, "gpt_rollout_report.png");
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }, "image/png");
+}
+
+function buildReportHtml(summary, insights) {
+  const reportCanvas = renderReportCanvas(summary, insights);
+  const chartCanvas = document.getElementById("dashboard");
+  const stamp = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
+  const t = readThresholds();
+
+  // The full-report PNG is embedded for quick viewing; the chart PNG is kept
+  // separate so a download link can hand it back at the original 1600x1080.
+  const reportPngDataUrl = reportCanvas.toDataURL("image/png");
+  const chartPngDataUrl = chartCanvas.toDataURL("image/png");
+
+  const tableRows = summary.map((row) => {
+    const cls = `row-${row.health_status.toLowerCase()}`;
+    return `<tr class="${cls}">
+      <td>${escapeHtml(row.brand_name)}</td>
+      <td class="num">${fmtCount(row.total_sessions)}</td>
+      <td class="num">${Number.isFinite(row.avg_utterances_per_session) ? row.avg_utterances_per_session.toFixed(2) : "—"}</td>
+      <td class="num">${fmtCount(row.total_requests)}</td>
+      <td class="num">${fmtCount(row.p50_ttfb_ms)}</td>
+      <td class="num">${fmtCount(row.p95_ttfb_ms)}</td>
+      <td class="num">${fmtCount(row.p99_ttfb_ms)}</td>
+      <td class="status-cell"><span class="status ${row.health_status}">${row.health_status}</span></td>
+    </tr>`;
+  }).join("\n");
+
+  const insightCards = [
+    `<div class="insight"><div class="label">Health mix</div>
+      <div class="pills">
+        <span class="pill green">GREEN ${insights.greenCount}</span>
+        <span class="pill yellow">YELLOW ${insights.yellowCount}</span>
+        <span class="pill red">RED ${insights.redCount}</span>
+      </div></div>`,
+    `<div class="insight"><div class="label">Slowest brand</div>
+      <div class="value">${escapeHtml(insights.slowest?.brand_name ?? "—")}</div>
+      <div class="sub">${insights.slowest ? "p95 " + fmtMs(insights.slowest.p95_ttfb_ms) : ""}</div></div>`,
+    `<div class="insight"><div class="label">Most adopted</div>
+      <div class="value">${escapeHtml(insights.mostAdopted?.brand_name ?? "—")}</div>
+      <div class="sub">${insights.mostAdopted ? fmtCount(insights.mostAdopted.total_sessions) + " sessions" : ""}</div></div>`,
+    `<div class="insight"><div class="label">Healthiest brand</div>
+      <div class="value">${escapeHtml(insights.healthiest?.brand_name ?? "—")}</div>
+      <div class="sub">${insights.healthiest ? "p95 " + fmtMs(insights.healthiest.p95_ttfb_ms) : ""}</div></div>`,
+  ].join("\n");
+
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<title>GPT Rollout Health Report — ${escapeHtml(stamp)}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         margin: 0; background: #f5f7fb; color: #0f172a; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { margin: 0 0 6px; }
+  .meta { color: #64748b; font-size: 13px; margin-bottom: 24px; }
+  .insights { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .insight { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; }
+  .insight .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; }
+  .insight .value { font-size: 18px; font-weight: 600; margin-top: 6px; }
+  .insight .sub { font-size: 12px; color: #64748b; margin-top: 2px; }
+  .pills { display: flex; gap: 8px; margin-top: 8px; }
+  .pill { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #0f1115; }
+  .pill.green { background: ${HEALTH_COLORS.GREEN}; }
+  .pill.yellow { background: ${HEALTH_COLORS.YELLOW}; }
+  .pill.red { background: ${HEALTH_COLORS.RED}; color: white; }
+  table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #e2e8f0;
+          border-radius: 12px; overflow: hidden; font-size: 14px; margin-bottom: 24px; }
+  thead th { background: #f1f5f9; padding: 10px 12px; text-align: left; font-size: 12px;
+             text-transform: uppercase; color: #64748b; letter-spacing: 0.05em;
+             border-bottom: 1px solid #e2e8f0; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eef2f7; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.status-cell { text-align: center; }
+  tr.row-green { background: rgba(46, 204, 113, 0.08); }
+  tr.row-yellow { background: rgba(241, 196, 15, 0.08); }
+  tr.row-red { background: rgba(231, 76, 60, 0.10); }
+  .status { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #0f1115; }
+  .status.GREEN { background: ${HEALTH_COLORS.GREEN}; }
+  .status.YELLOW { background: ${HEALTH_COLORS.YELLOW}; }
+  .status.RED { background: ${HEALTH_COLORS.RED}; color: white; }
+  .chart-wrap { background: white; border: 1px solid #e2e8f0; border-radius: 12px;
+                padding: 12px; }
+  .chart-wrap img { width: 100%; height: auto; display: block; border-radius: 8px; }
+  .actions { margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .actions a { font-size: 13px; padding: 8px 12px; border: 1px solid #cbd5f5; border-radius: 8px;
+               text-decoration: none; color: #1e3a8a; background: white; }
+  footer { color: #94a3b8; font-size: 12px; margin-top: 32px; text-align: center; }
+  @media print { .actions, footer { display: none; } body { background: white; } }
+</style></head>
+<body><div class="wrap">
+  <h1>GPT Rollout Health Report</h1>
+  <div class="meta">Generated ${escapeHtml(stamp)} • ${summary.length} brands •
+    thresholds p95 GREEN&lt;${t.p95GreenMax}, RED&gt;${t.p95RedMin}; p99 GREEN&lt;${t.p99GreenMax}, RED&gt;${t.p99RedMin}</div>
+  <div class="actions">
+    <a href="${reportPngDataUrl}" download="gpt_rollout_report.png">Download full report (PNG)</a>
+    <a href="${chartPngDataUrl}" download="dashboard.png">Download chart only (PNG)</a>
+  </div>
+  <div class="insights">${insightCards}</div>
+  <table>
+    <thead><tr>
+      <th>Brand</th><th>Sessions</th><th>Avg utt/session</th><th>Requests</th>
+      <th>p50 (ms)</th><th>p95 (ms)</th><th>p99 (ms)</th><th>Health</th>
+    </tr></thead>
+    <tbody>${tableRows}</tbody>
+  </table>
+  <div class="chart-wrap"><img src="${chartPngDataUrl}" alt="GPT rollout dashboard chart" /></div>
+  <footer>Generated client-side from Pinot + MySQL CSV exports. No data leaves the browser.</footer>
+</div></body></html>`;
+}
+
+function downloadReportHtml() {
+  if (!state.summary || !state.insights) return;
+  const html = buildReportHtml(state.summary, state.insights);
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  triggerDownload(url, "gpt_rollout_report.html");
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function downloadCsv() {
+  if (!state.summary) return;
+  const header = SUMMARY_COLUMNS.join(",");
+  const lines = state.summary.map((row) =>
+    SUMMARY_COLUMNS.map((col) => {
+      const v = row[col];
+      if (v === undefined || v === null || (typeof v === "number" && Number.isNaN(v))) return "";
+      const text = String(v);
+      return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    }).join(",")
+  );
+  const blob = new Blob([header + "\n" + lines.join("\n") + "\n"], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  triggerDownload(url, "merged_metrics.csv");
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function resetAll() {
+  state.pinotRows = null; state.pinotName = null;
+  state.mysqlRows = null; state.mysqlName = null;
+  state.summary = null; state.insights = null;
+
+  for (const id of ["dropPinot", "dropMysql"]) {
+    const z = document.getElementById(id);
+    z.classList.remove("has-file", "error", "dragover");
+    const fn = z.querySelector(".filename");
+    fn.textContent = "Drag & drop or click to choose";
+    fn.classList.add("hint");
+    fn.setAttribute("data-empty", "");
+    const meta = z.querySelector(".meta");
+    meta.textContent = z.dataset.kind === "pinot"
+      ? "Required columns: brand_id, total_requests, avg_ttfb_ms, p50_ttfb_ms, p95_ttfb_ms, p99_ttfb_ms"
+      : "Required columns: brand_id, brand_name, total_sessions, total_utterances, avg_utterances_per_session";
+    setDropZoneError(z, "");
+    z.querySelector('input[type="file"]').value = "";
+  }
+
+  document.getElementById("results").classList.add("hidden");
+  document.getElementById("btnDownloadReportPng").disabled = true;
+  document.getElementById("btnDownloadReportHtml").disabled = true;
+  document.getElementById("btnDownloadPng").disabled = true;
+  document.getElementById("btnDownloadCsv").disabled = true;
+  refreshButtons();
+}
+
+/* ------------------------------------------------------------------ */
+/* Bootstrap                                                          */
+/* ------------------------------------------------------------------ */
+
+document.addEventListener("DOMContentLoaded", () => {
+  wireDropZone(document.getElementById("dropPinot"));
+  wireDropZone(document.getElementById("dropMysql"));
+  document.getElementById("btnGenerate").addEventListener("click", generate);
+  document.getElementById("btnDownloadReportPng").addEventListener("click", downloadReportPng);
+  document.getElementById("btnDownloadReportHtml").addEventListener("click", downloadReportHtml);
+  document.getElementById("btnDownloadPng").addEventListener("click", downloadPng);
+  document.getElementById("btnDownloadCsv").addEventListener("click", downloadCsv);
+  document.getElementById("btnReset").addEventListener("click", resetAll);
+  // Prevent the browser from navigating away when a file is dropped outside a zone.
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => e.preventDefault());
+});
+</script>
+</body>
+</html>

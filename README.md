@@ -14,6 +14,12 @@ Reusable workflow for collecting AWS Lambda CloudWatch data and turning it into 
   Prompt instructions for turning collected artifact files into the final markdown report.
 - `examples/sample_lambda_cloudwatch_review.md`
   Sample final report output.
+- `scripts/gpt_rollout_health_dashboard.py`
+  Standalone dashboard generator that merges a Pinot latency CSV and a MySQL adoption CSV into a `merged_metrics.csv` + `dashboard.png` for daily GPT rollout health monitoring.
+- `dashboards/gpt_rollout_dashboard.html`
+  Self-contained drag-and-drop browser version of the dashboard (same logic, runs 100% client-side, downloads PNG + CSV).
+- `examples/sample_pinot_metrics.csv`, `examples/sample_mysql_metrics.csv`
+  Sample inputs for the GPT rollout health dashboard (work with both the Python and HTML versions).
 
 ## Default behavior
 
@@ -137,6 +143,101 @@ The final generated report should be a concise markdown file covering:
 - application error signals
 - RCA summary
 - recommended next steps
+
+## GPT rollout health dashboard
+
+`scripts/gpt_rollout_health_dashboard.py` is a small, standalone tool meant to be run daily after exporting fresh CSVs from Pinot (latency) and MySQL (adoption). It does not connect to any database — CSV in, dashboard + CSV out.
+
+Install runtime dependencies (pandas + matplotlib) once:
+
+```bash
+pip install -r requirements.txt
+```
+
+Run against the bundled samples:
+
+```bash
+python3 scripts/gpt_rollout_health_dashboard.py \
+  --pinot-csv examples/sample_pinot_metrics.csv \
+  --mysql-csv examples/sample_mysql_metrics.csv \
+  --output-dir reports/gpt_rollout/$(date -u +%F)
+```
+
+Outputs (placed inside `--output-dir`):
+
+- `merged_metrics.csv` — merged + health-classified summary, sorted by `p95_ttfb_ms` descending.
+- `dashboard.png` — 3-panel matplotlib dashboard (p95 bar chart, sessions bar chart, adoption-vs-latency scatter) with GREEN / YELLOW / RED coloring.
+
+Default `health_status` rules:
+
+- `GREEN`  — `p95_ttfb_ms < 5000` AND `p99_ttfb_ms < 8000`
+- `RED`    — `p95_ttfb_ms > 8000` OR `p99_ttfb_ms > 15000`
+- `YELLOW` — everything else (typical warning zone)
+
+Thresholds can be tightened or relaxed at the CLI:
+
+```bash
+python3 scripts/gpt_rollout_health_dashboard.py \
+  --pinot-csv pinot.csv --mysql-csv mysql.csv \
+  --p95-green-max-ms 3000 --p95-red-min-ms 6000 \
+  --p99-green-max-ms 6000 --p99-red-min-ms 12000
+```
+
+Expected input columns:
+
+- Pinot CSV: `brand_id, total_requests, avg_ttfb_ms, p50_ttfb_ms, p95_ttfb_ms, p99_ttfb_ms`
+- MySQL CSV: `brand_id, brand_name, total_sessions, total_utterances, avg_utterances_per_session`
+
+### Browser version (drag & drop)
+
+If you don't want to set up Python, just open `dashboards/gpt_rollout_dashboard.html` in any modern browser:
+
+```bash
+open dashboards/gpt_rollout_dashboard.html
+```
+
+- Drag the Pinot CSV onto the left drop zone and the MySQL CSV onto the right one (or click to browse).
+- Optionally tweak the health thresholds.
+- Click **Generate dashboard** to see insights cards, a colored summary table, and the rendered chart.
+- Click **Download dashboard.png** for the image and **Download merged_metrics.csv** for the merged data.
+
+The page is fully self-contained (no external dependencies, no servers, no uploads — files never leave your machine). The merge, health classification, sort, and insights logic mirror `scripts/gpt_rollout_health_dashboard.py` exactly; the Node smoke test in `tests/smoke_dashboard_html.cjs` enforces parity on the sample CSVs.
+
+### Deploy the dashboard to S3
+
+Because the dashboard is a single self-contained HTML file, you can host it on S3 in seconds.
+
+```bash
+# 1. Quick private deploy + presigned URL valid for 24h (works on any bucket
+#    you can write to; no public-read permissions required).
+./scripts/deploy_dashboard_to_s3.sh --bucket my-internal-tools
+
+# 2. Public object (bucket must allow public ACLs).
+./scripts/deploy_dashboard_to_s3.sh --bucket my-public-tools --public
+
+# 3. Full static-website hosting (idempotent one-time bucket setup).
+./scripts/deploy_dashboard_to_s3.sh --bucket my-public-tools --public --website
+
+# Common extras:
+./scripts/deploy_dashboard_to_s3.sh \
+  --bucket my-internal-tools \
+  --prefix gpt-rollout/2026-05-13/ \
+  --region us-west-1 \
+  --profile zen-prod \
+  --expires-seconds 604800 \
+  --samples
+```
+
+The script:
+
+- Uploads `dashboards/gpt_rollout_dashboard.html` (and optional sample CSVs) with `Content-Type: text/html; charset=utf-8` and `Cache-Control: no-cache` so daily redeploys are picked up immediately.
+- Prints the `s3://` URI, the canonical HTTPS object URL, and a **presigned URL** (default 24h, max 7 days) you can paste into Slack.
+- With `--public`, also sets the `public-read` ACL and prints the unsigned object URL.
+- With `--website`, applies a static-website configuration and a scoped public-read bucket policy (skipped if a bucket policy already exists) and prints the website endpoint URL.
+- Honors `AWS_REGION`, `AWS_PROFILE`, `S3_BUCKET`, and `S3_PREFIX` from your environment / `.env` file.
+- Supports `--dry-run` to preview every `aws` command without executing it.
+
+Requirements: AWS CLI v2 and credentials with `s3:PutObject` (plus `s3:PutBucketWebsite`, `s3:PutBucketPolicy`, `s3:PutObjectAcl` if you use `--public` / `--website`).
 
 ## Notes
 

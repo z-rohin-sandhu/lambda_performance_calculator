@@ -1,0 +1,6 @@
+brand_id,brand_name,total_sessions,total_utterances,avg_utterances_per_session
+brand-001,Acme Health,3120,42180,13.5
+brand-002,Northwind Coaching,2105,29470,14.0
+brand-003,Globex Insurance,985,11820,12.0
+brand-004,Initech Sales,5840,93440,16.0
+brand-005,Soylent Support,210,2310,11.0
