@@ -21,3 +21,20 @@ __pycache__/
 *.pyzwz
 *.pyzwzw
 *.pyzwzwz
+
+# macOS metadata
+.DS_Store
+**/.DS_Store
+# Python tooling caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+# Virtual environments (local-only)
+venv/
+.venv/
+env/
+# Node tooling (used by tests/smoke_dashboard_html.cjs)
+node_modules/

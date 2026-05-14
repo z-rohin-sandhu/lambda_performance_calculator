@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+import argparse
+import csv
 import json
 import logging
 import os
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
@@ -16,8 +18,46 @@ from typing import Any, Final
 
 LOGGER: Final[logging.Logger] = logging.getLogger("cloudwatch_review_runner")
 REPORT_FILENAME_TEMPLATE: Final[str] = "{env}_{execution_date}_websocket_reports.md"
+LAMBDA_METRICS_CSV_TEMPLATE: Final[str] = "{env}_{execution_date}_lambda_metrics.csv"
 SECTION_SEPARATOR: Final[str] = "------------------------------------------------------------"
 LAMBDA_PREFIX: Final[str] = "Lambda:"
+
+# Stable column order for the lambda metrics CSV consumed by the HTML dashboard.
+# Kept in lockstep with the LAMBDA_REQUIRED constant on the dashboard side.
+LAMBDA_CSV_COLUMNS: Final[tuple[str, ...]] = (
+    "lambda_name",
+    "invocations",
+    "lambda_errors",
+    "throttles",
+    "avg_duration_ms",
+    "p95_duration_ms",
+    "p99_duration_ms",
+    "max_duration_ms",
+    "cold_starts",
+    "avg_init_duration_ms",
+    "warning_count",
+    "error_count",
+    "top_errors",
+    "top_warnings",
+)
+
+# Default substrings whose appearance in app_message marks an entry as noise.
+# Matched case-insensitively as a substring so variants like
+# "should_flush.emergency_accumulation triggered" still get filtered out.
+DEFAULT_IGNORED_MESSAGES: Final[tuple[str, ...]] = (
+    "should_flush.emergency_accumulation",
+)
+IGNORED_MESSAGES_ENV_VAR: Final[str] = "CW_REVIEW_IGNORE_MESSAGES"
+
+# Today-anchored window presets ending at "now UTC". The start of each preset is
+# the UTC midnight that is `days` days before today (so daily = today 00:00).
+PRESET_WINDOW_DAYS: Final[dict[str, int]] = {
+    "daily": 0,
+    "weekly": 7,
+    "biweekly": 14,
+    "monthly": 30,
+}
+TIME_RANGE_PRESETS: Final[tuple[str, ...]] = tuple(PRESET_WINDOW_DAYS.keys()) + ("custom",)
 
 
 class AutomationError(RuntimeError):
@@ -173,6 +213,55 @@ def parse_filter_values(raw_value: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(value for value in values if value))
 
 
+def resolve_time_range(preset: str, now: datetime | None = None) -> tuple[str, str]:
+    """Return the (start, end) ISO 8601 window for a today-anchored preset."""
+
+    if preset not in PRESET_WINDOW_DAYS:
+        raise AutomationError(
+            f"Unknown time-range preset '{preset}'. "
+            f"Expected one of: {', '.join(PRESET_WINDOW_DAYS)} or 'custom'."
+        )
+
+    current = now or datetime.now(UTC)
+    # Anchor start at the UTC midnight `days` days before today so the window is
+    # human-friendly (e.g. weekly always begins at a clean 00:00:00Z boundary).
+    today_midnight = current.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_dt = today_midnight - timedelta(days=PRESET_WINDOW_DAYS[preset])
+    end_dt = current.replace(microsecond=0)
+    return (
+        start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+
+
+def prompt_time_range_preset() -> str:
+    """Prompt the user for a time-range preset, defaulting to weekly."""
+
+    options = "/".join(TIME_RANGE_PRESETS)
+    raw = input(f"Time range [{options}] [weekly]: ").strip().lower()
+    if not raw:
+        return "weekly"
+    if raw not in TIME_RANGE_PRESETS:
+        raise AutomationError(
+            f"Unknown time-range preset '{raw}'. Expected one of: {options}."
+        )
+    return raw
+
+
+def collect_window_inputs() -> tuple[str, str]:
+    """Collect the review window honoring the preset prompt."""
+
+    preset = prompt_time_range_preset()
+    if preset == "custom":
+        start_time = prompt_with_default("Start time (UTC ISO 8601)", default_start_time())
+        end_time = prompt_with_default("End time (UTC ISO 8601)", default_end_time())
+        return start_time, end_time
+
+    start_time, end_time = resolve_time_range(preset)
+    print(f"Resolved {preset} window: {start_time} -> {end_time}")
+    return start_time, end_time
+
+
 def prompt_message_filter() -> tuple[str | None, tuple[str, ...]]:
     """Collect an optional message filter for latency metrics."""
 
@@ -196,8 +285,7 @@ def collect_inputs() -> ReviewInputs:
 
     env_name = prompt_with_default("Environment", "prod")
     region = prompt_with_default("AWS region", os.getenv("AWS_REGION", "us-west-1"))
-    start_time = prompt_with_default("Start time (UTC ISO 8601)", default_start_time())
-    end_time = prompt_with_default("End time (UTC ISO 8601)", default_end_time())
+    start_time, end_time = collect_window_inputs()
     start_dt = parse_iso8601(start_time)
     end_dt = parse_iso8601(end_time)
 
@@ -571,8 +659,80 @@ def parse_top_messages(path: Path) -> list[dict[str, str | int]]:
     return messages
 
 
+def is_ignored_message(text: str, ignored: tuple[str, ...]) -> bool:
+    """Return True when text contains any ignored substring (case-insensitive)."""
+
+    if not text or not ignored:
+        return False
+    lowered = text.lower()
+    return any(pattern.lower() in lowered for pattern in ignored if pattern)
+
+
+def apply_ignore_filter(
+    top_messages: list[dict[str, str | int]],
+    summaries: dict[str, LambdaSummary],
+    ignored: tuple[str, ...],
+) -> tuple[list[dict[str, str | int]], dict[str, LambdaSummary]]:
+    """Strip ignored messages and subtract their counts from each Lambda summary."""
+
+    if not ignored:
+        return top_messages, summaries
+
+    kept_messages: list[dict[str, str | int]] = []
+    # Track how many WARNING/ERROR occurrences to subtract per lambda.
+    deductions: dict[str, dict[str, int]] = {}
+    for message in top_messages:
+        message_text = str(message.get("message", ""))
+        if is_ignored_message(message_text, ignored):
+            lambda_name = str(message.get("lambda_name", ""))
+            level = str(message.get("level", "")).upper()
+            if lambda_name and level in {"WARNING", "ERROR"}:
+                bucket = deductions.setdefault(lambda_name, {"WARNING": 0, "ERROR": 0})
+                bucket[level] = bucket.get(level, 0) + int(message.get("total", 0) or 0)
+            continue
+        kept_messages.append(message)
+
+    if not deductions:
+        return kept_messages, summaries
+
+    adjusted_summaries: dict[str, LambdaSummary] = {}
+    for lambda_name, summary in summaries.items():
+        bucket = deductions.get(lambda_name)
+        if not bucket:
+            adjusted_summaries[lambda_name] = summary
+            continue
+        # Floor at zero so a noisy top-messages tally never produces negatives.
+        new_warning = max(0, (summary.warning_count or 0) - bucket.get("WARNING", 0))
+        new_error = max(0, (summary.error_count or 0) - bucket.get("ERROR", 0))
+        adjusted_summaries[lambda_name] = replace(
+            summary,
+            warning_count=new_warning,
+            error_count=new_error,
+        )
+    return kept_messages, adjusted_summaries
+
+
+def load_ignored_messages(
+    cli_patterns: tuple[str, ...] = (),
+    use_defaults: bool = True,
+    env_var_name: str = IGNORED_MESSAGES_ENV_VAR,
+) -> tuple[str, ...]:
+    """Merge default, env-var, and CLI ignore patterns, preserving order."""
+
+    raw_patterns: list[str] = []
+    if use_defaults:
+        raw_patterns.extend(DEFAULT_IGNORED_MESSAGES)
+    env_value = os.environ.get(env_var_name, "").strip()
+    if env_value:
+        raw_patterns.extend(part.strip() for part in env_value.split(",") if part.strip())
+    raw_patterns.extend(pattern for pattern in cli_patterns if pattern)
+    # Deduplicate while preserving insertion order.
+    return tuple(dict.fromkeys(raw_patterns))
+
+
 def load_lambda_summaries(
     run_dir: Path,
+    ignored_messages: tuple[str, ...] = (),
 ) -> tuple[
     dict[str, str],
     dict[str, list[str]],
@@ -604,6 +764,9 @@ def load_lambda_summaries(
             concurrency_metrics=concurrency_metrics,
         )
 
+    # Apply the ignore filter centrally so the markdown report and the CSV
+    # always agree on warning/error counts and top-message rows.
+    top_messages, summaries = apply_ignore_filter(top_messages, summaries, ignored_messages)
     return metadata_scalars, metadata_sections, summaries, top_messages, filtered_metrics
 
 
@@ -906,7 +1069,11 @@ def build_next_steps(primary: LambdaSummary | None, top_messages: list[dict[str,
     return "\n".join(deduped_steps[:5])
 
 
-def build_notes(metadata_scalars: dict[str, str], metadata_sections: dict[str, list[str]]) -> str:
+def build_notes(
+    metadata_scalars: dict[str, str],
+    metadata_sections: dict[str, list[str]],
+    ignored_messages: tuple[str, ...] = (),
+) -> str:
     """Build the notes section."""
 
     notes = [
@@ -923,6 +1090,12 @@ def build_notes(metadata_scalars: dict[str, str], metadata_sections: dict[str, l
         notes.append(
             "- Filtered latency metrics are derived by grouping CloudWatch log events by request id, then keeping only invocations whose log messages included any requested filter value for the selected key."
         )
+    if ignored_messages:
+        rendered_patterns = ", ".join(f"`{pattern}`" for pattern in ignored_messages)
+        notes.append(
+            "- Ignored noise patterns (subtracted from warning/error counts and top messages): "
+            f"{rendered_patterns}."
+        )
     return "\n".join(notes)
 
 
@@ -935,10 +1108,16 @@ def render_report(template_text: str, replacements: dict[str, str]) -> str:
     return rendered.rstrip() + "\n"
 
 
-def build_report(repo_root: Path, run_dir: Path) -> tuple[str, str, str]:
+def build_report(
+    repo_root: Path,
+    run_dir: Path,
+    ignored_messages: tuple[str, ...] = (),
+) -> tuple[str, str, str, list[str], dict[str, LambdaSummary], list[dict[str, str | int]]]:
     """Build the final report markdown and return metadata for output."""
 
-    metadata_scalars, metadata_sections, summaries, top_messages, filtered_metrics = load_lambda_summaries(run_dir)
+    metadata_scalars, metadata_sections, summaries, top_messages, filtered_metrics = load_lambda_summaries(
+        run_dir, ignored_messages=ignored_messages
+    )
     lambda_names = metadata_sections.get("active_lambdas") or metadata_sections.get("requested_lambdas") or []
     if lambda_names == ["none"]:
         lambda_names = []
@@ -968,10 +1147,17 @@ def build_report(repo_root: Path, run_dir: Path) -> tuple[str, str, str]:
         "TOP_MESSAGES": build_top_messages(top_messages),
         "RCA_SUMMARY": build_rca_summary(primary, top_messages),
         "NEXT_STEPS": build_next_steps(primary, top_messages),
-        "NOTES": build_notes(metadata_scalars, metadata_sections),
+        "NOTES": build_notes(metadata_scalars, metadata_sections, ignored_messages),
     }
     execution_date = parse_iso8601(metadata_scalars["end_time"]).date().isoformat()
-    return metadata_scalars["env"], execution_date, render_report(template_text, replacements)
+    return (
+        metadata_scalars["env"],
+        execution_date,
+        render_report(template_text, replacements),
+        list(lambda_names),
+        summaries,
+        top_messages,
+    )
 
 
 def save_report(repo_root: Path, env_name: str, execution_date: str, markdown_text: str) -> Path:
@@ -987,20 +1173,155 @@ def save_report(repo_root: Path, env_name: str, execution_date: str, markdown_te
     return output_path
 
 
-def main() -> int:
+def format_csv_int(value: int | None) -> str:
+    """Render an integer for the CSV (empty string when missing)."""
+
+    return "" if value is None else str(int(value))
+
+
+def format_csv_ms(value: float | None) -> str:
+    """Render a millisecond float for the CSV with 2 decimals (empty if missing)."""
+
+    return "" if value is None else f"{value:.2f}"
+
+
+def encode_top_messages_for_csv(
+    top_messages: list[dict[str, str | int]],
+    lambda_name: str,
+    level: str,
+    limit: int = 5,
+) -> str:
+    """Encode top messages for one lambda/level as 'msg:count; msg:count'."""
+
+    matching = [
+        message
+        for message in top_messages
+        if str(message.get("lambda_name", "")) == lambda_name
+        and str(message.get("level", "")).upper() == level.upper()
+    ]
+    # Top messages already come pre-sorted by recurrence from Logs Insights, but
+    # sort again defensively to keep the CSV stable across reruns.
+    matching.sort(key=lambda row: int(row.get("total", 0) or 0), reverse=True)
+
+    parts: list[str] = []
+    for message in matching[:limit]:
+        text = str(message.get("message", "")).strip()
+        count = int(message.get("total", 0) or 0)
+        if not text:
+            continue
+        # Strip colons/semicolons from message text so the encoded format stays
+        # unambiguous on the JS side; CSV quoting handles commas and quotes.
+        clean_text = text.replace(";", " ").replace(":", " ")
+        parts.append(f"{clean_text}:{count}")
+    return "; ".join(parts)
+
+
+def write_lambda_csv(
+    repo_root: Path,
+    env_name: str,
+    execution_date: str,
+    lambda_names: list[str],
+    summaries: dict[str, LambdaSummary],
+    top_messages: list[dict[str, str | int]],
+) -> Path:
+    """Write the per-lambda CSV consumed by the HTML dashboard."""
+
+    reports_dir = repo_root / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    output_path = reports_dir / LAMBDA_METRICS_CSV_TEMPLATE.format(
+        env=env_name,
+        execution_date=execution_date,
+    )
+
+    with output_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(LAMBDA_CSV_COLUMNS))
+        writer.writeheader()
+        for lambda_name in lambda_names:
+            summary = summaries.get(lambda_name)
+            if summary is None:
+                continue
+            writer.writerow({
+                "lambda_name": lambda_name,
+                "invocations": format_csv_int(summary.invocations),
+                "lambda_errors": format_csv_int(summary.lambda_errors),
+                "throttles": format_csv_int(summary.throttles),
+                "avg_duration_ms": format_csv_ms(summary.avg_duration_ms),
+                "p95_duration_ms": format_csv_ms(summary.p95_duration_ms),
+                "p99_duration_ms": format_csv_ms(summary.p99_duration_ms),
+                "max_duration_ms": format_csv_ms(summary.max_duration_ms),
+                "cold_starts": format_csv_int(summary.cold_starts),
+                "avg_init_duration_ms": format_csv_ms(summary.avg_init_duration_ms),
+                "warning_count": format_csv_int(summary.warning_count),
+                "error_count": format_csv_int(summary.error_count),
+                "top_errors": encode_top_messages_for_csv(top_messages, lambda_name, "ERROR"),
+                "top_warnings": encode_top_messages_for_csv(top_messages, lambda_name, "WARNING"),
+            })
+    return output_path
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments for the review automation."""
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run the CloudWatch review automation: collects artifacts, builds the "
+            "markdown report, and emits a CSV of lambda metrics for the dashboard."
+        ),
+    )
+    parser.add_argument(
+        "--ignore-message",
+        action="append",
+        default=[],
+        metavar="SUBSTRING",
+        help=(
+            "Substring to treat as noise; matches case-insensitively. Repeatable. "
+            "Removes the message from the top-messages list and subtracts its "
+            "occurrences from each lambda's warning/error count."
+        ),
+    )
+    parser.add_argument(
+        "--no-default-ignores",
+        action="store_true",
+        help=(
+            "Do not apply the built-in DEFAULT_IGNORED_MESSAGES list "
+            "(e.g. 'should_flush.emergency_accumulation')."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
     """Run the interactive CloudWatch review workflow."""
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    args = parse_args(argv)
     repo_root = Path(__file__).resolve().parents[1]
     load_dotenv_file(repo_root / ".env")
+
+    ignored_messages = load_ignored_messages(
+        cli_patterns=tuple(args.ignore_message),
+        use_defaults=not args.no_default_ignores,
+    )
+    if ignored_messages:
+        LOGGER.info("Applying ignore patterns: %s", ", ".join(ignored_messages))
 
     try:
         print("CloudWatch Review Automation\n")
         inputs = collect_inputs()
         run_dir = run_collector(repo_root, inputs)
         LOGGER.info("Generating markdown report from collected artifacts...")
-        env_name, execution_date, markdown_text = build_report(repo_root, run_dir)
+        env_name, execution_date, markdown_text, lambda_names, summaries, top_messages = build_report(
+            repo_root, run_dir, ignored_messages=ignored_messages
+        )
         output_path = save_report(repo_root, env_name, execution_date, markdown_text)
+        csv_path = write_lambda_csv(
+            repo_root,
+            env_name,
+            execution_date,
+            lambda_names,
+            summaries,
+            top_messages,
+        )
     except AutomationError as exc:
         LOGGER.error("Error: %s", exc)
         return 1
@@ -1012,8 +1333,9 @@ def main() -> int:
         return 130
 
     print("\nReview generation complete.")
-    print(f"Artifacts: {run_dir}")
-    print(f"Report: {output_path}")
+    print(f"Artifacts:    {run_dir}")
+    print(f"Report:       {output_path}")
+    print(f"Lambda CSV:   {csv_path}")
     return 0
 
 
