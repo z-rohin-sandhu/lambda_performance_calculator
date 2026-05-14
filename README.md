@@ -137,12 +137,12 @@ The script will:
 
 ### Time range presets
 
-The first prompt accepts one of `daily`, `weekly` (default), `biweekly`, `monthly`, or `custom`. Each preset is **today-anchored**: the start is the UTC midnight `N` days before today and the end is "now UTC".
+The first prompt accepts one of `daily`, `weekly` (default), `biweekly`, `monthly`, or `custom`. Each preset is a **rolling window ending at "now UTC"** — the start is exactly `N × 24h` earlier, so the window is always full regardless of what time of day you run the script.
 
-- `daily`    — today 00:00 UTC → now (≈ last 0–24h)
-- `weekly`   — 7 days ago 00:00 UTC → now
-- `biweekly` — 14 days ago 00:00 UTC → now
-- `monthly`  — 30 days ago 00:00 UTC → now
+- `daily`    — now − 24h → now (e.g. running at 2PM IST on May 14 covers 2PM IST May 13 → 2PM IST May 14)
+- `weekly`   — now − 7 days → now
+- `biweekly` — now − 14 days → now
+- `monthly`  — now − 30 days → now
 - `custom`   — falls back to the original two ISO 8601 prompts.
 
 ### Ignoring noisy log messages

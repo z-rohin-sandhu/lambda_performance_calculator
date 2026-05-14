@@ -49,10 +49,12 @@ DEFAULT_IGNORED_MESSAGES: Final[tuple[str, ...]] = (
 )
 IGNORED_MESSAGES_ENV_VAR: Final[str] = "CW_REVIEW_IGNORE_MESSAGES"
 
-# Today-anchored window presets ending at "now UTC". The start of each preset is
-# the UTC midnight that is `days` days before today (so daily = today 00:00).
+# Rolling time-range presets. Each window ends at "now UTC" and starts
+# exactly `days` × 24 hours earlier, so running at 14:00 IST on May 14 with
+# `daily` returns 14:00 IST on May 13 -> 14:00 IST on May 14. This avoids the
+# empty-data gap that today-anchored windows hit early in the UTC day.
 PRESET_WINDOW_DAYS: Final[dict[str, int]] = {
-    "daily": 0,
+    "daily": 1,
     "weekly": 7,
     "biweekly": 14,
     "monthly": 30,
@@ -214,7 +216,7 @@ def parse_filter_values(raw_value: str) -> tuple[str, ...]:
 
 
 def resolve_time_range(preset: str, now: datetime | None = None) -> tuple[str, str]:
-    """Return the (start, end) ISO 8601 window for a today-anchored preset."""
+    """Return the (start, end) ISO 8601 window for a rolling preset ending now."""
 
     if preset not in PRESET_WINDOW_DAYS:
         raise AutomationError(
@@ -222,12 +224,10 @@ def resolve_time_range(preset: str, now: datetime | None = None) -> tuple[str, s
             f"Expected one of: {', '.join(PRESET_WINDOW_DAYS)} or 'custom'."
         )
 
-    current = now or datetime.now(UTC)
-    # Anchor start at the UTC midnight `days` days before today so the window is
-    # human-friendly (e.g. weekly always begins at a clean 00:00:00Z boundary).
-    today_midnight = current.replace(hour=0, minute=0, second=0, microsecond=0)
-    start_dt = today_midnight - timedelta(days=PRESET_WINDOW_DAYS[preset])
-    end_dt = current.replace(microsecond=0)
+    # Rolling window: end at "now UTC" (second-precision), start exactly N*24h
+    # earlier so partial UTC days never leave the window empty.
+    end_dt = (now or datetime.now(UTC)).replace(microsecond=0)
+    start_dt = end_dt - timedelta(days=PRESET_WINDOW_DAYS[preset])
     return (
         start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
         end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),

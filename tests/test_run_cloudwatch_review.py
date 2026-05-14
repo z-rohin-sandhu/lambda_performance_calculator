@@ -126,24 +126,34 @@ def test_build_filtered_metrics_section_handles_missing_filter() -> None:
 
 @pytest.mark.parametrize(
     "preset, days_offset",
-    [("daily", 0), ("weekly", 7), ("biweekly", 14), ("monthly", 30)],
+    [("daily", 1), ("weekly", 7), ("biweekly", 14), ("monthly", 30)],
 )
-def test_resolve_time_range_anchors_to_today_midnight(preset: str, days_offset: int) -> None:
-    """Each preset anchors its start at the UTC midnight N days before today."""
+def test_resolve_time_range_returns_rolling_window(preset: str, days_offset: int) -> None:
+    """Each preset returns a rolling window of exactly N*24h ending at "now"."""
 
     from datetime import UTC, datetime, timedelta
 
     module = load_review_module()
-    frozen_now = datetime(2026, 5, 13, 21, 33, 47, tzinfo=UTC)
+    frozen_now = datetime(2026, 5, 14, 8, 30, 0, tzinfo=UTC)
     start_iso, end_iso = module.resolve_time_range(preset, now=frozen_now)
 
-    expected_start = (
-        frozen_now.replace(hour=0, minute=0, second=0, microsecond=0)
-        - timedelta(days=days_offset)
-    )
     expected_end = frozen_now.replace(microsecond=0)
-    assert start_iso == expected_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+    expected_start = expected_end - timedelta(days=days_offset)
     assert end_iso == expected_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert start_iso == expected_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_resolve_time_range_daily_matches_2pm_ist_example() -> None:
+    """Running 'daily' at 2PM IST on May 14 returns 2PM IST on May 13 -> now."""
+
+    from datetime import UTC, datetime
+
+    module = load_review_module()
+    # 2PM IST = 08:30 UTC.
+    frozen_now = datetime(2026, 5, 14, 8, 30, 0, tzinfo=UTC)
+    start_iso, end_iso = module.resolve_time_range("daily", now=frozen_now)
+    assert start_iso == "2026-05-13T08:30:00Z"
+    assert end_iso == "2026-05-14T08:30:00Z"
 
 
 def test_resolve_time_range_rejects_custom_and_unknown() -> None:
