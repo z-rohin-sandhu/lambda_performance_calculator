@@ -2,6 +2,8 @@
 
 Reusable workflow for collecting AWS Lambda CloudWatch data and turning it into a concise performance/RCA report.
 
+> **First time setting this up?** See [INSTALLATION.md](INSTALLATION.md) for the 7-step laptop runbook (Python, venv, `.env`, bridge, dashboard).
+
 ## What this repo contains
 
 - `scripts/cloudwatch_review_collect.sh`
