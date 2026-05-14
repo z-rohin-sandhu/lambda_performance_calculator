@@ -1,1 +1,4 @@
-# No external Python dependencies are required.
+pandas>=2.0,<3.0
+matplotlib>=3.7,<4.0
+boto3>=1.34,<2.0
+pymysql>=1.1,<2.0

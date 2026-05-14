@@ -1,0 +1,4 @@
+lambda_name,invocations,lambda_errors,throttles,avg_duration_ms,p95_duration_ms,p99_duration_ms,max_duration_ms,cold_starts,avg_init_duration_ms,warning_count,error_count,top_errors,top_warnings
+zen-prod-sqs-message-consumer,571,0,0,760.15,3354.11,5222.44,7015.35,19,1605.81,1,0,,stream_runner.llm_streaming.failed:1
+zen-prod-ws-to-sqs-producer,571,0,0,15.56,58.03,73.17,121.00,13,503.07,0,0,,
+zen_prod_authorizer_service,24,0,0,3.40,3.83,13.36,13.36,18,178.59,0,0,,
