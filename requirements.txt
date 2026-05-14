@@ -1,8 +1,4 @@
-# Python dependencies for the lambda performance calculator.
-#
-# The CloudWatch review automation in scripts/run_cloudwatch_review.py uses
-# only the standard library. The GPT rollout health dashboard
-# (scripts/gpt_rollout_health_dashboard.py) needs pandas and matplotlib.
-
 pandas>=2.0,<3.0
 matplotlib>=3.7,<4.0
+boto3>=1.34,<2.0
+pymysql>=1.1,<2.0

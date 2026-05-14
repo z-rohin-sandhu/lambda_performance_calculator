@@ -51,6 +51,71 @@
       font-size: 14px;
     }
 
+    /* Single shared bridge connection bar shown above the drop-row. Replaces
+       three duplicated 'Bridge settings' disclosures inside each fetch panel. */
+    .bridge-bar {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      margin-bottom: 16px;
+    }
+    .bridge-bar > summary {
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .bridge-bar > summary::-webkit-details-marker { display: none; }
+    .bridge-bar > summary .caret {
+      width: 10px; height: 10px;
+      border-right: 2px solid var(--muted);
+      border-bottom: 2px solid var(--muted);
+      transform: rotate(-45deg);
+      transition: transform 0.15s ease;
+      margin-left: auto;
+      margin-right: 4px;
+    }
+    .bridge-bar[open] > summary .caret { transform: rotate(45deg); }
+    .bridge-bar .summary-label { display: flex; align-items: center; gap: 10px; }
+    .bridge-bar-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    @media (max-width: 800px) { .bridge-bar-grid { grid-template-columns: 1fr; } }
+    .bridge-bar-grid label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .bridge-bar-grid input {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .bridge-bar .hint {
+      grid-column: 1 / -1;
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .bridge-bar .hint code { color: var(--text); }
+
     .drop-row {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -60,6 +125,162 @@
     @media (max-width: 980px) {
       .drop-row { grid-template-columns: 1fr; }
     }
+
+    .zone-wrap {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 0;
+    }
+    .zone-wrap .zone-title {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .zone-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--panel-2);
+      border-radius: 8px;
+      padding: 4px;
+    }
+    .zone-tab {
+      flex: 1;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 0;
+    }
+    .zone-tab.active {
+      background: var(--bg);
+      color: var(--text);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    }
+    .zone-pane { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+
+    /* Inside the tab strip, .drop-zone keeps its dashed look + click area
+       without re-introducing an outer card border (the .zone-wrap is the card). */
+    .zone-pane .drop-zone {
+      background: transparent;
+      padding: 14px;
+      min-height: 100px;
+    }
+
+    .fetch-panel { display: flex; flex-direction: column; gap: 10px; }
+    .fetch-panel .bridge-status {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .bridge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--panel-2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .bridge-pill.green { background: rgba(46, 204, 113, 0.14); color: #b9f6ca; border-color: rgba(46, 204, 113, 0.4); }
+    .bridge-pill.red   { background: rgba(231, 76, 60, 0.18); color: #ffd7d2; border-color: rgba(231, 76, 60, 0.5); }
+    .bridge-pill .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: currentColor;
+    }
+
+    .fetch-panel details.bridge-settings summary {
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .fetch-panel details.bridge-settings[open] summary { margin-bottom: 8px; }
+    .fetch-panel .bridge-settings .row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .fetch-panel .bridge-settings .row label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .fetch-panel input,
+    .fetch-panel textarea {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: inherit;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .fetch-panel textarea { resize: vertical; min-height: 52px; font-family: ui-monospace, SF Mono, Menlo, monospace; }
+    .fetch-panel .form-grid {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 10px;
+      align-items: center;
+    }
+    .fetch-panel .form-grid label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .fetch-panel button.fetch-btn {
+      background: var(--accent);
+      color: white;
+      border: 0;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .fetch-panel button.fetch-btn:hover:not(:disabled) { background: var(--accent-hover); }
+    .fetch-panel button.fetch-btn:disabled {
+      background: #333a4a; color: #6b7280; cursor: not-allowed;
+    }
+    .fetch-banner {
+      font-size: 12px;
+      border-radius: 6px;
+      padding: 8px 12px;
+      line-height: 1.4;
+    }
+    .fetch-banner.info   { background: rgba(91,141,239,0.12); color: #cbd5f5; border: 1px solid rgba(91,141,239,0.35); }
+    .fetch-banner.ok     { background: rgba(46,204,113,0.12); color: #b9f6ca; border: 1px solid rgba(46,204,113,0.4); }
+    .fetch-banner.error  { background: rgba(231,76,60,0.14); color: #ffd7d2; border: 1px solid rgba(231,76,60,0.45); }
+    .fetch-status { font-size: 12px; color: var(--muted); min-height: 16px; }
+    .fetch-coming-soon {
+      font-size: 13px;
+      color: var(--muted);
+      padding: 18px;
+      background: var(--panel-2);
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      line-height: 1.5;
+    }
+    .fetch-coming-soon code { color: var(--text); }
 
     .drop-zone {
       background: var(--panel);
@@ -355,30 +576,132 @@
       <p>Drop any combination of the three CSVs below. Whichever you provide, only the matching sections of the report render. Everything runs in your browser — no uploads, no servers.</p>
     </header>
 
+    <details class="bridge-bar" id="bridgeBar" open>
+      <summary>
+        <span class="summary-label">
+          <span class="bridge-pill" id="bridgePill"><span class="dot"></span><span class="label">Checking bridge…</span></span>
+          <span>Bridge connection</span>
+        </span>
+        <span class="caret"></span>
+      </summary>
+      <div class="bridge-bar-grid">
+        <label>
+          Bridge URL
+          <input id="bridgeUrl" type="url" placeholder="http://127.0.0.1:8765" />
+        </label>
+        <label>
+          Bridge token
+          <input id="bridgeToken" type="password" placeholder="paste once — shared across MySQL, Lambda, and Pinot fetches" />
+        </label>
+        <div class="hint">
+          Used by every "Fetch from bridge" tab below. Start the bridge with
+          <code>python3 scripts/local_data_bridge.py</code> and paste the
+          <code>Bridge token</code> it prints. Persisted in your browser's <code>localStorage</code>; cleared on Reset.
+        </div>
+      </div>
+    </details>
+
     <section class="drop-row">
-      <label class="drop-zone" id="dropPinot" data-kind="pinot">
-        <h3>Pinot latency CSV</h3>
-        <div class="filename hint" data-empty>Drag & drop or click to choose</div>
-        <div class="meta">Required columns: brand_id, total_requests, avg_ttfb_ms, p50_ttfb_ms, p95_ttfb_ms, p99_ttfb_ms</div>
-        <div class="err hidden"></div>
-        <input type="file" accept=".csv,text/csv" hidden />
-      </label>
+      <div class="zone-wrap" id="zonePinot" data-kind="pinot">
+        <h3 class="zone-title">Pinot latency CSV</h3>
+        <div class="zone-tabs" data-kind="pinot">
+          <button type="button" class="zone-tab active" data-tab="upload">Upload CSV</button>
+          <button type="button" class="zone-tab" data-tab="fetch">Fetch from bridge</button>
+        </div>
+        <div class="zone-pane" data-tab="upload">
+          <div class="drop-zone" id="dropPinot" data-kind="pinot">
+            <div class="filename hint" data-empty>Drag &amp; drop or click to choose</div>
+            <div class="meta">Required columns: brand_id, total_requests, avg_ttfb_ms, p50_ttfb_ms, p95_ttfb_ms, p99_ttfb_ms</div>
+            <div class="err hidden"></div>
+            <input type="file" accept=".csv,text/csv" hidden />
+          </div>
+        </div>
+        <div class="zone-pane hidden" data-tab="fetch">
+          <div class="fetch-panel" data-kind="pinot">
+            <div class="form-grid">
+              <label for="pinotAuthToken">Pinot bearer token</label>
+              <input id="pinotAuthToken" type="password" placeholder="paste the JWT (rotates every ~24h)" />
+              <label for="pinotFetchDays">Last N days</label>
+              <input id="pinotFetchDays" type="number" min="1" max="30" value="1" />
+              <label for="pinotFetchBrandIds">Brand IDs</label>
+              <textarea id="pinotFetchBrandIds" rows="2">470,257,466,416,38,221,411,301</textarea>
+            </div>
+            <div style="font-size: 11px; color: var(--muted);">
+              Cisco VPN required. The bridge POSTs a hard-coded <strong>SELECT-only</strong> query; it never accepts user-supplied SQL.
+            </div>
+            <button type="button" class="fetch-btn" id="pinotFetchBtn">Fetch latency metrics from Pinot</button>
+            <div class="fetch-banner hidden" id="pinotFetchBanner"></div>
+            <div class="fetch-status" id="pinotFetchStatus"></div>
+          </div>
+        </div>
+      </div>
 
-      <label class="drop-zone" id="dropMysql" data-kind="mysql">
-        <h3>MySQL adoption CSV</h3>
-        <div class="filename hint" data-empty>Drag & drop or click to choose</div>
-        <div class="meta">Required columns: brand_id, brand_name, total_sessions, total_utterances, avg_utterances_per_session</div>
-        <div class="err hidden"></div>
-        <input type="file" accept=".csv,text/csv" hidden />
-      </label>
+      <div class="zone-wrap" id="zoneMysql" data-kind="mysql">
+        <h3 class="zone-title">MySQL adoption CSV</h3>
+        <div class="zone-tabs" data-kind="mysql">
+          <button type="button" class="zone-tab active" data-tab="upload">Upload CSV</button>
+          <button type="button" class="zone-tab" data-tab="fetch">Fetch from RDS</button>
+        </div>
+        <div class="zone-pane" data-tab="upload">
+          <div class="drop-zone" id="dropMysql" data-kind="mysql">
+            <div class="filename hint" data-empty>Drag &amp; drop or click to choose</div>
+            <div class="meta">Required columns: brand_id, brand_name, total_sessions, total_utterances, avg_utterances_per_session</div>
+            <div class="err hidden"></div>
+            <input type="file" accept=".csv,text/csv" hidden />
+          </div>
+        </div>
+        <div class="zone-pane hidden" data-tab="fetch">
+          <div class="fetch-panel" data-kind="mysql">
+            <div class="form-grid">
+              <label for="mysqlFetchDays">Last N days</label>
+              <input id="mysqlFetchDays" type="number" min="1" max="365" value="1" />
+              <label for="mysqlFetchBrandIds">Brand IDs</label>
+              <textarea id="mysqlFetchBrandIds" rows="2">470,257,466,416,38,221,411,301</textarea>
+            </div>
+            <button type="button" class="fetch-btn" id="mysqlFetchBtn">Fetch adoption metrics from RDS</button>
+            <div class="fetch-banner hidden" id="mysqlFetchBanner"></div>
+            <div class="fetch-status" id="mysqlFetchStatus"></div>
+          </div>
+        </div>
+      </div>
 
-      <label class="drop-zone" id="dropLambda" data-kind="lambda">
-        <h3>Lambda CloudWatch CSV</h3>
-        <div class="filename hint" data-empty>Drag & drop or click to choose</div>
-        <div class="meta">Generated by scripts/run_cloudwatch_review.py. Columns: lambda_name, invocations, lambda_errors, throttles, avg/p95/p99/max_duration_ms, cold_starts, avg_init_duration_ms, warning_count, error_count, top_errors, top_warnings</div>
-        <div class="err hidden"></div>
-        <input type="file" accept=".csv,text/csv" hidden />
-      </label>
+      <div class="zone-wrap" id="zoneLambda" data-kind="lambda">
+        <h3 class="zone-title">Lambda CloudWatch CSV</h3>
+        <div class="zone-tabs" data-kind="lambda">
+          <button type="button" class="zone-tab active" data-tab="upload">Upload CSV</button>
+          <button type="button" class="zone-tab" data-tab="fetch">Fetch from bridge</button>
+        </div>
+        <div class="zone-pane" data-tab="upload">
+          <div class="drop-zone" id="dropLambda" data-kind="lambda">
+            <div class="filename hint" data-empty>Drag &amp; drop or click to choose</div>
+            <div class="meta">Generated by <code>scripts/run_cloudwatch_review.py</code>. Columns: lambda_name, invocations, lambda_errors, throttles, avg/p95/p99/max_duration_ms, cold_starts, avg_init_duration_ms, warning_count, error_count, top_errors, top_warnings</div>
+            <div class="err hidden"></div>
+            <input type="file" accept=".csv,text/csv" hidden />
+          </div>
+        </div>
+        <div class="zone-pane hidden" data-tab="fetch">
+          <div class="fetch-panel" data-kind="lambda">
+            <div class="form-grid">
+              <label for="lambdaFetchEnv">Environment</label>
+              <input id="lambdaFetchEnv" type="text" value="prod" />
+              <label for="lambdaFetchRegion">AWS region</label>
+              <input id="lambdaFetchRegion" type="text" value="us-west-1" />
+              <label for="lambdaFetchDays">Last N days</label>
+              <input id="lambdaFetchDays" type="number" min="1" max="30" value="1" />
+              <label for="lambdaFetchNames">Lambda names</label>
+              <textarea id="lambdaFetchNames" rows="3" placeholder="One per line or comma-separated. Leave blank to use the env defaults."></textarea>
+              <label for="lambdaFetchIgnores">Extra ignore patterns</label>
+              <textarea id="lambdaFetchIgnores" rows="2" placeholder="Optional, comma-separated. should_flush.emergency_accumulation is always applied unless 'Skip defaults' is checked."></textarea>
+              <label for="lambdaFetchSkipDefaults">Skip default ignores</label>
+              <input id="lambdaFetchSkipDefaults" type="checkbox" />
+            </div>
+            <button type="button" class="fetch-btn" id="lambdaFetchBtn">Fetch lambda metrics from CloudWatch</button>
+            <div class="fetch-banner hidden" id="lambdaFetchBanner"></div>
+            <div class="fetch-status" id="lambdaFetchStatus"></div>
+            <div class="fetch-status" id="lambdaFetchProgress" style="font-size:11px;font-style:italic;"></div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <details class="thresholds">
@@ -2396,7 +2719,585 @@ function resetAll() {
   document.getElementById("btnDownloadPng").disabled = true;
   document.getElementById("btnDownloadCsv").disabled = true;
   document.getElementById("btnDownloadLambdaCsv").disabled = true;
+  // Clear any RDS fetch banners/status, but keep the saved bridge URL/token
+  // in localStorage so the user doesn't have to re-paste them after a reset.
+  ["mysql", "pinot", "lambda"].forEach((kind) => {
+    const banner = document.getElementById(`${kind}FetchBanner`);
+    if (banner) { banner.classList.add("hidden"); banner.innerHTML = ""; }
+    const status = document.getElementById(`${kind}FetchStatus`);
+    if (status) status.textContent = "";
+  });
   refreshButtons();
+}
+
+/* ------------------------------------------------------------------ */
+/* Tab switching + local data bridge integration                      */
+/* ------------------------------------------------------------------ */
+
+const BRIDGE_STORAGE_KEYS = {
+  url: "gptRollout.bridge.url",
+  token: "gptRollout.bridge.token",
+  pinotToken: "gptRollout.pinot.token",
+};
+const BRIDGE_DEFAULT_URL = "http://127.0.0.1:8765";
+const BRIDGE_POLL_MS = 5000;
+
+const bridgeState = {
+  url: null,
+  token: null,
+  pollTimer: null,
+  lastHealth: null,
+};
+
+function safeLocalStorageGet(key) {
+  try { return window.localStorage?.getItem(key) ?? null; }
+  catch (e) { return null; }
+}
+function safeLocalStorageSet(key, value) {
+  try { window.localStorage?.setItem(key, value); }
+  catch (e) { /* private mode / disabled storage */ }
+}
+
+function readBridgeSettings() {
+  // Single shared bar above the drop-row exposes both URL + token. Inputs
+  // are persisted in localStorage so refreshing the page keeps the settings.
+  const urlField = document.getElementById("bridgeUrl")?.value?.trim();
+  const tokenField = document.getElementById("bridgeToken")?.value?.trim();
+  return {
+    url: urlField || safeLocalStorageGet(BRIDGE_STORAGE_KEYS.url) || BRIDGE_DEFAULT_URL,
+    token: tokenField || safeLocalStorageGet(BRIDGE_STORAGE_KEYS.token) || "",
+  };
+}
+
+function syncBridgeFieldsFromStorage() {
+  // Restore the single shared URL + token inputs from localStorage. The Pinot
+  // bearer token has its own input on the Pinot panel and is restored too.
+  const url = safeLocalStorageGet(BRIDGE_STORAGE_KEYS.url) || BRIDGE_DEFAULT_URL;
+  const token = safeLocalStorageGet(BRIDGE_STORAGE_KEYS.token) || "";
+  const urlEl = document.getElementById("bridgeUrl");
+  const tokenEl = document.getElementById("bridgeToken");
+  if (urlEl && urlEl.value !== url) urlEl.value = url;
+  if (tokenEl && tokenEl.value !== token) tokenEl.value = token;
+  const pinotAuthEl = document.getElementById("pinotAuthToken");
+  if (pinotAuthEl) {
+    const pinotToken = safeLocalStorageGet(BRIDGE_STORAGE_KEYS.pinotToken) || "";
+    if (pinotAuthEl.value !== pinotToken) pinotAuthEl.value = pinotToken;
+  }
+}
+
+function bridgeFetchUrl(base, suffix) {
+  // Normalize trailing slashes so users can paste either "http://127.0.0.1:8765"
+  // or "http://127.0.0.1:8765/" into the settings field.
+  const trimmed = base.replace(/\/+$/, "");
+  return `${trimmed}${suffix}`;
+}
+
+async function pingBridge(url) {
+  // Lightweight liveness check used by the status pill. No auth, no body.
+  try {
+    const resp = await fetch(bridgeFetchUrl(url, "/healthz"), {
+      method: "GET",
+      mode: "cors",
+      cache: "no-store",
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return data && data.ok ? data : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function renderBridgePill(pillEl, info) {
+  if (!pillEl) return;
+  const label = pillEl.querySelector(".label");
+  pillEl.classList.remove("green", "red");
+  if (info && info.ok) {
+    pillEl.classList.add("green");
+    label.textContent = `Bridge v${info.version || "?"} • ${(info.datasets || []).length} datasets`;
+  } else {
+    pillEl.classList.add("red");
+    label.textContent = "Bridge not reachable — run python3 scripts/local_data_bridge.py";
+  }
+}
+
+async function refreshBridgeStatus() {
+  const { url } = readBridgeSettings();
+  const info = await pingBridge(url);
+  bridgeState.lastHealth = info;
+  // Single shared pill lives in the bridge bar above the drop-row.
+  renderBridgePill(document.getElementById("bridgePill"), info);
+}
+
+function startBridgePolling() {
+  if (bridgeState.pollTimer) return;
+  refreshBridgeStatus();
+  bridgeState.pollTimer = window.setInterval(refreshBridgeStatus, BRIDGE_POLL_MS);
+}
+
+function stopBridgePolling() {
+  if (!bridgeState.pollTimer) return;
+  window.clearInterval(bridgeState.pollTimer);
+  bridgeState.pollTimer = null;
+}
+
+function bridgePanelVisibleFor(kind) {
+  const idByKind = { mysql: "zoneMysql", pinot: "zonePinot", lambda: "zoneLambda" };
+  const wrap = document.getElementById(idByKind[kind]);
+  if (!wrap) return false;
+  const fetchPane = wrap.querySelector('.zone-pane[data-tab="fetch"]');
+  return fetchPane && !fetchPane.classList.contains("hidden");
+}
+
+function showFetchBanner(kind, level, html) {
+  const banner = document.getElementById(`${kind}FetchBanner`);
+  if (!banner) return;
+  banner.classList.remove("hidden", "info", "ok", "error");
+  banner.classList.add(level);
+  banner.innerHTML = html;
+}
+
+function clearFetchBanner(kind) {
+  const banner = document.getElementById(`${kind}FetchBanner`);
+  if (!banner) return;
+  banner.classList.add("hidden");
+  banner.innerHTML = "";
+}
+
+function setFetchStatus(kind, text) {
+  const el = document.getElementById(`${kind}FetchStatus`);
+  if (el) el.textContent = text || "";
+}
+
+function parseBrandIdsInput(value) {
+  // Accept comma- or whitespace-separated lists; reject anything non-numeric
+  // up front so the bridge doesn't have to.
+  if (!value) return [];
+  return value
+    .split(/[,\s]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const n = Number(part);
+      if (!Number.isInteger(n) || n <= 0) {
+        throw new Error(`Invalid brand id: "${part}". Use positive integers separated by commas.`);
+      }
+      return n;
+    });
+}
+
+async function fetchMysqlAdoption({ url, token, days, brandIds }) {
+  // The bridge returns { rows: [...], row_count, fetched_at, ... }. Those rows
+  // already match the dashboard's MySQL CSV schema, so the caller can drop
+  // them straight into state.mysqlRows.
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["X-Bridge-Token"] = token;
+  const resp = await fetch(bridgeFetchUrl(url, "/query/mysql/adoption"), {
+    method: "POST",
+    mode: "cors",
+    headers,
+    body: JSON.stringify({ days, brand_ids: brandIds }),
+  });
+  let payload = null;
+  try { payload = await resp.json(); } catch (e) { /* non-JSON response */ }
+  if (!resp.ok) {
+    const message = (payload && payload.error) || `HTTP ${resp.status} from bridge`;
+    const err = new Error(message);
+    err.status = resp.status;
+    err.payload = payload;
+    throw err;
+  }
+  if (!payload || !Array.isArray(payload.rows)) {
+    throw new Error("Bridge response missing 'rows' array.");
+  }
+  return payload;
+}
+
+function normalizeFetchedMysqlRows(rows) {
+  // Convert bridge rows (numeric types) into the same string-shaped objects
+  // parseCsv produces, so validateColumns + downstream rendering stay generic.
+  return rows.map((row) => ({
+    brand_id: String(row.brand_id ?? "").trim(),
+    brand_name: String(row.brand_name ?? "").trim(),
+    total_sessions: row.total_sessions == null ? "" : String(row.total_sessions),
+    total_utterances: row.total_utterances == null ? "" : String(row.total_utterances),
+    avg_utterances_per_session:
+      row.avg_utterances_per_session == null ? "" : String(row.avg_utterances_per_session),
+  }));
+}
+
+async function handleMysqlFetchClick() {
+  const fetchBtn = document.getElementById("mysqlFetchBtn");
+  const dropZoneEl = document.getElementById("dropMysql");
+  clearFetchBanner("mysql");
+  setFetchStatus("mysql", "");
+
+  const { url, token } = readBridgeSettings();
+  if (!url) {
+    showFetchBanner("mysql", "error", "Bridge URL is required.");
+    return;
+  }
+  // Persist bridge settings so the user doesn't re-enter them after refresh.
+  safeLocalStorageSet(BRIDGE_STORAGE_KEYS.url, url);
+  if (token) safeLocalStorageSet(BRIDGE_STORAGE_KEYS.token, token);
+
+  let brandIds;
+  try {
+    brandIds = parseBrandIdsInput(document.getElementById("mysqlFetchBrandIds").value);
+    if (brandIds.length === 0) throw new Error("At least one brand id is required.");
+  } catch (err) {
+    showFetchBanner("mysql", "error", escapeHtml(err.message || String(err)));
+    return;
+  }
+  const days = Math.max(1, Math.min(365, Number(document.getElementById("mysqlFetchDays").value) || 1));
+
+  fetchBtn.disabled = true;
+  const originalLabel = fetchBtn.textContent;
+  fetchBtn.textContent = "Fetching…";
+  setFetchStatus("mysql", "Talking to the local bridge…");
+
+  try {
+    const payload = await fetchMysqlAdoption({ url, token, days, brandIds });
+    const normalized = normalizeFetchedMysqlRows(payload.rows);
+    validateColumns(normalized, MYSQL_REQUIRED, "MySQL bridge response");
+    state.mysqlRows = normalized;
+    state.mysqlName = `RDS @ ${payload.fetched_at || new Date().toISOString().slice(0, 19) + "Z"}`;
+    if (dropZoneEl) {
+      // Update the visual state of the upload tab so a glance at either tab
+      // shows the data is loaded.
+      const meta = dropZoneEl.querySelector(".meta");
+      setDropZoneError(dropZoneEl, "");
+      setDropZoneFile(dropZoneEl, state.mysqlName, normalized.length);
+      if (meta) meta.textContent = `${normalized.length} row${normalized.length === 1 ? "" : "s"} loaded from RDS`;
+    }
+    refreshButtons();
+    showFetchBanner(
+      "mysql", "ok",
+      `Loaded ${normalized.length} brand row${normalized.length === 1 ? "" : "s"} from RDS (${escapeHtml(payload.fetched_at || "")}). Click <em>Generate dashboard</em> to render.`,
+    );
+    setFetchStatus("mysql", `Last fetch: ${payload.fetched_at || ""}`);
+  } catch (err) {
+    let hint = "";
+    if (err.status === 401) hint = " Paste the current bridge token from the terminal where the bridge is running.";
+    else if (err.status === 400) hint = " Check the brand IDs and days inputs.";
+    else if (!err.status) hint = " Is the bridge running? Try: <code>python3 scripts/local_data_bridge.py</code>";
+    showFetchBanner("mysql", "error", `${escapeHtml(err.message || String(err))}${hint}`);
+    setFetchStatus("mysql", "");
+  } finally {
+    fetchBtn.disabled = false;
+    fetchBtn.textContent = originalLabel;
+  }
+}
+
+function parseLambdaNamesInput(value) {
+  // Accept newline- or comma-separated lambda names; empty input means
+  // "fall back to the bridge's default set for the environment".
+  if (!value || !value.trim()) return [];
+  return value
+    .split(/[\n,]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+async function fetchLambdaCloudwatch({ url, token, env, region, days, lambdaNames, ignoreMessages, useDefaultIgnores }) {
+  // Mirror fetchMysqlAdoption but for the lambda dataset. The bridge talks to
+  // CloudWatch via scripts/cloudwatch_review_collect.sh, which can take up to
+  // ~60 seconds for the full review; we still let fetch use the default
+  // timeout but surface that wait in the UI via the progress label.
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["X-Bridge-Token"] = token;
+  const resp = await fetch(bridgeFetchUrl(url, "/query/lambda/cloudwatch"), {
+    method: "POST",
+    mode: "cors",
+    headers,
+    body: JSON.stringify({
+      env,
+      region,
+      days,
+      lambda_names: lambdaNames,
+      ignore_messages: ignoreMessages,
+      use_default_ignores: useDefaultIgnores,
+    }),
+  });
+  let payload = null;
+  try { payload = await resp.json(); } catch (e) { /* non-JSON response */ }
+  if (!resp.ok) {
+    const message = (payload && payload.error) || `HTTP ${resp.status} from bridge`;
+    const err = new Error(message);
+    err.status = resp.status;
+    err.payload = payload;
+    throw err;
+  }
+  if (!payload || !Array.isArray(payload.rows)) {
+    throw new Error("Bridge response missing 'rows' array.");
+  }
+  return payload;
+}
+
+function normalizeFetchedLambdaRows(rows) {
+  // Bridge produces strings already (csv-ready), but be defensive in case the
+  // shape ever changes. Coerce every value to a trimmed string so the existing
+  // validateColumns + normalizeLambdaRows path stays unchanged.
+  return rows.map((row) => ({
+    lambda_name: String(row.lambda_name ?? "").trim(),
+    invocations: row.invocations == null ? "" : String(row.invocations),
+    lambda_errors: row.lambda_errors == null ? "" : String(row.lambda_errors),
+    throttles: row.throttles == null ? "" : String(row.throttles),
+    avg_duration_ms: row.avg_duration_ms == null ? "" : String(row.avg_duration_ms),
+    p95_duration_ms: row.p95_duration_ms == null ? "" : String(row.p95_duration_ms),
+    p99_duration_ms: row.p99_duration_ms == null ? "" : String(row.p99_duration_ms),
+    max_duration_ms: row.max_duration_ms == null ? "" : String(row.max_duration_ms),
+    cold_starts: row.cold_starts == null ? "" : String(row.cold_starts),
+    avg_init_duration_ms:
+      row.avg_init_duration_ms == null ? "" : String(row.avg_init_duration_ms),
+    warning_count: row.warning_count == null ? "" : String(row.warning_count),
+    error_count: row.error_count == null ? "" : String(row.error_count),
+    top_errors: String(row.top_errors ?? ""),
+    top_warnings: String(row.top_warnings ?? ""),
+  }));
+}
+
+async function handleLambdaFetchClick() {
+  const fetchBtn = document.getElementById("lambdaFetchBtn");
+  const progressEl = document.getElementById("lambdaFetchProgress");
+  const dropZoneEl = document.getElementById("dropLambda");
+  clearFetchBanner("lambda");
+  setFetchStatus("lambda", "");
+  if (progressEl) progressEl.textContent = "";
+
+  const { url, token } = readBridgeSettings();
+  if (!url) { showFetchBanner("lambda", "error", "Bridge URL is required."); return; }
+  safeLocalStorageSet(BRIDGE_STORAGE_KEYS.url, url);
+  if (token) safeLocalStorageSet(BRIDGE_STORAGE_KEYS.token, token);
+  syncBridgeFieldsFromStorage();
+
+  const env = (document.getElementById("lambdaFetchEnv")?.value || "prod").trim() || "prod";
+  const region = (document.getElementById("lambdaFetchRegion")?.value || "").trim();
+  const days = Math.max(1, Math.min(30, Number(document.getElementById("lambdaFetchDays")?.value) || 1));
+  const lambdaNames = parseLambdaNamesInput(document.getElementById("lambdaFetchNames")?.value || "");
+  const ignoreMessages = parseLambdaNamesInput(document.getElementById("lambdaFetchIgnores")?.value || "");
+  const useDefaultIgnores = !document.getElementById("lambdaFetchSkipDefaults")?.checked;
+
+  fetchBtn.disabled = true;
+  const originalLabel = fetchBtn.textContent;
+  fetchBtn.textContent = "Fetching…";
+  setFetchStatus("lambda", "Collecting CloudWatch artifacts (this can take 30–90s)…");
+  // A small ticker keeps the operator informed during the long-running shell
+  // step on the bridge side.
+  let tickerSeconds = 0;
+  const ticker = window.setInterval(() => {
+    tickerSeconds += 1;
+    if (progressEl) progressEl.textContent = `Elapsed ${tickerSeconds}s — bridge is running cloudwatch_review_collect.sh.`;
+  }, 1000);
+
+  try {
+    const payload = await fetchLambdaCloudwatch({
+      url, token, env, region, days,
+      lambdaNames, ignoreMessages, useDefaultIgnores,
+    });
+    const normalized = normalizeFetchedLambdaRows(payload.rows);
+    validateColumns(normalized, LAMBDA_REQUIRED, "Lambda bridge response");
+    state.lambdaRows = normalized;
+    state.lambdaName = `CloudWatch @ ${payload.fetched_at || new Date().toISOString().slice(0, 19) + "Z"}`;
+    if (dropZoneEl) {
+      const meta = dropZoneEl.querySelector(".meta");
+      setDropZoneError(dropZoneEl, "");
+      setDropZoneFile(dropZoneEl, state.lambdaName, normalized.length);
+      if (meta) {
+        meta.textContent = `${normalized.length} lambda row${normalized.length === 1 ? "" : "s"} loaded from CloudWatch (${payload.start_time || ""} → ${payload.end_time || ""}).`;
+      }
+    }
+    refreshButtons();
+    const ignoredNote = (payload.ignored_messages && payload.ignored_messages.length)
+      ? `<br><small>Ignored patterns: ${escapeHtml(payload.ignored_messages.join(", "))}</small>`
+      : "";
+    showFetchBanner(
+      "lambda", "ok",
+      `Loaded ${normalized.length} lambda row${normalized.length === 1 ? "" : "s"} from CloudWatch.${ignoredNote}<br>Click <em>Generate dashboard</em> to render.`,
+    );
+    setFetchStatus("lambda", `Last fetch: ${payload.fetched_at || ""}`);
+  } catch (err) {
+    let hint = "";
+    if (err.status === 401) hint = " Paste the current bridge token from the terminal where the bridge is running.";
+    else if (err.status === 400) hint = " Check the environment, region, days, and lambda names inputs.";
+    else if (err.status === 502) hint = " The bridge ran the collector but it failed. Check the terminal for the full error.";
+    else if (!err.status) hint = " Is the bridge running? Try: <code>python3 scripts/local_data_bridge.py</code>";
+    showFetchBanner("lambda", "error", `${escapeHtml(err.message || String(err))}${hint}`);
+    setFetchStatus("lambda", "");
+  } finally {
+    window.clearInterval(ticker);
+    if (progressEl) progressEl.textContent = "";
+    fetchBtn.disabled = false;
+    fetchBtn.textContent = originalLabel;
+  }
+}
+
+async function fetchPinotLatency({ url, token, pinotToken, days, brandIds }) {
+  // Same shape as fetchMysqlAdoption but for the Pinot dataset. The Pinot
+  // bearer token is included in the body (never as a URL parameter) so it
+  // doesn't end up in proxy/server logs.
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["X-Bridge-Token"] = token;
+  const resp = await fetch(bridgeFetchUrl(url, "/query/pinot/latency"), {
+    method: "POST",
+    mode: "cors",
+    headers,
+    body: JSON.stringify({
+      days,
+      brand_ids: brandIds,
+      pinot_auth_token: pinotToken || undefined,
+    }),
+  });
+  let payload = null;
+  try { payload = await resp.json(); } catch (e) { /* non-JSON response */ }
+  if (!resp.ok) {
+    const message = (payload && payload.error) || `HTTP ${resp.status} from bridge`;
+    const err = new Error(message);
+    err.status = resp.status;
+    err.payload = payload;
+    throw err;
+  }
+  if (!payload || !Array.isArray(payload.rows)) {
+    throw new Error("Bridge response missing 'rows' array.");
+  }
+  return payload;
+}
+
+function normalizeFetchedPinotRows(rows) {
+  // Bridge returns dict-of-strings already (parseCsv-shape); be defensive in
+  // case Pinot ever changes the schema and convert every value to a trimmed
+  // string. The required columns are what validateColumns checks against.
+  return rows.map((row) => ({
+    brand_id: String(row.brand_id ?? "").trim(),
+    total_requests: row.total_requests == null ? "" : String(row.total_requests),
+    avg_ttfb_ms: row.avg_ttfb_ms == null ? "" : String(row.avg_ttfb_ms),
+    p50_ttfb_ms: row.p50_ttfb_ms == null ? "" : String(row.p50_ttfb_ms),
+    p95_ttfb_ms: row.p95_ttfb_ms == null ? "" : String(row.p95_ttfb_ms),
+    p99_ttfb_ms: row.p99_ttfb_ms == null ? "" : String(row.p99_ttfb_ms),
+  }));
+}
+
+async function handlePinotFetchClick() {
+  const fetchBtn = document.getElementById("pinotFetchBtn");
+  const dropZoneEl = document.getElementById("dropPinot");
+  clearFetchBanner("pinot");
+  setFetchStatus("pinot", "");
+
+  const { url, token } = readBridgeSettings();
+  const pinotToken = (document.getElementById("pinotAuthToken")?.value || "").trim();
+  if (!url) { showFetchBanner("pinot", "error", "Bridge URL is required."); return; }
+  if (!pinotToken) {
+    showFetchBanner(
+      "pinot", "error",
+      "Pinot bearer token is required. Paste it into the <strong>Bridge settings</strong> panel.",
+    );
+    return;
+  }
+  safeLocalStorageSet(BRIDGE_STORAGE_KEYS.url, url);
+  if (token) safeLocalStorageSet(BRIDGE_STORAGE_KEYS.token, token);
+  safeLocalStorageSet(BRIDGE_STORAGE_KEYS.pinotToken, pinotToken);
+  syncBridgeFieldsFromStorage();
+
+  let brandIds;
+  try {
+    brandIds = parseBrandIdsInput(document.getElementById("pinotFetchBrandIds")?.value || "");
+    if (brandIds.length === 0) throw new Error("At least one brand id is required.");
+  } catch (err) {
+    showFetchBanner("pinot", "error", escapeHtml(err.message || String(err)));
+    return;
+  }
+  const days = Math.max(1, Math.min(30, Number(document.getElementById("pinotFetchDays")?.value) || 1));
+
+  fetchBtn.disabled = true;
+  const originalLabel = fetchBtn.textContent;
+  fetchBtn.textContent = "Fetching…";
+  setFetchStatus("pinot", "Querying Pinot via the local bridge…");
+
+  try {
+    const payload = await fetchPinotLatency({ url, token, pinotToken, days, brandIds });
+    const normalized = normalizeFetchedPinotRows(payload.rows);
+    validateColumns(normalized, PINOT_REQUIRED, "Pinot bridge response");
+    state.pinotRows = normalized;
+    state.pinotName = `Pinot @ ${payload.fetched_at || new Date().toISOString().slice(0, 19) + "Z"}`;
+    if (dropZoneEl) {
+      const meta = dropZoneEl.querySelector(".meta");
+      setDropZoneError(dropZoneEl, "");
+      setDropZoneFile(dropZoneEl, state.pinotName, normalized.length);
+      if (meta) {
+        const scanned = payload.num_docs_scanned != null
+          ? ` • ${Number(payload.num_docs_scanned).toLocaleString()} docs scanned`
+          : "";
+        meta.textContent = `${normalized.length} brand row${normalized.length === 1 ? "" : "s"} loaded from Pinot${scanned}`;
+      }
+    }
+    refreshButtons();
+    const queryTime = payload.time_used_ms != null ? ` in ${payload.time_used_ms} ms` : "";
+    showFetchBanner(
+      "pinot", "ok",
+      `Loaded ${normalized.length} brand row${normalized.length === 1 ? "" : "s"} from Pinot${queryTime}. Click <em>Generate dashboard</em> to render.`,
+    );
+    setFetchStatus("pinot", `Last fetch: ${payload.fetched_at || ""}`);
+  } catch (err) {
+    let hint = "";
+    if (err.status === 401) hint = " Mint a fresh Bearer token (these expire ~daily) and paste it into the Pinot token field.";
+    else if (err.status === 400) hint = " Check the brand IDs and days inputs.";
+    else if (err.status === 502) hint = " The bridge reached Pinot but the query was rejected. Check the bridge terminal for details.";
+    else if (!err.status) hint = " Is the bridge running and the Cisco VPN connected?";
+    showFetchBanner("pinot", "error", `${escapeHtml(err.message || String(err))}${hint}`);
+    setFetchStatus("pinot", "");
+  } finally {
+    fetchBtn.disabled = false;
+    fetchBtn.textContent = originalLabel;
+  }
+}
+
+function activateZoneTab(zoneWrapEl, tabId) {
+  zoneWrapEl.querySelectorAll(".zone-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === tabId);
+  });
+  zoneWrapEl.querySelectorAll(".zone-pane").forEach((pane) => {
+    pane.classList.toggle("hidden", pane.dataset.tab !== tabId);
+  });
+  // Start/stop the bridge poll only when a fetch tab is visible somewhere.
+  if (anyFetchPaneVisible()) startBridgePolling();
+  else stopBridgePolling();
+}
+
+function anyFetchPaneVisible() {
+  return ["mysql", "pinot", "lambda"].some((k) => bridgePanelVisibleFor(k));
+}
+
+function wireZoneTabs() {
+  document.querySelectorAll(".zone-tabs").forEach((tabsEl) => {
+    const wrap = tabsEl.closest(".zone-wrap");
+    tabsEl.querySelectorAll(".zone-tab").forEach((btn) => {
+      btn.addEventListener("click", () => activateZoneTab(wrap, btn.dataset.tab));
+    });
+  });
+}
+
+function restoreBridgeSettings() {
+  // Populate every panel's input pair from localStorage. syncBridgeFieldsFromStorage
+  // is idempotent so calling it on each pane keeps everything aligned.
+  syncBridgeFieldsFromStorage();
+}
+
+function persistBridgeSettingsOnInput() {
+  // Single shared bridge bar -> persist URL + token to localStorage. The
+  // Pinot bearer token lives only on the Pinot panel and gets its own key.
+  const urlEl = document.getElementById("bridgeUrl");
+  const tokenEl = document.getElementById("bridgeToken");
+  urlEl?.addEventListener("change", () => {
+    safeLocalStorageSet(BRIDGE_STORAGE_KEYS.url, urlEl.value.trim());
+    refreshBridgeStatus();
+  });
+  tokenEl?.addEventListener("change", () => {
+    safeLocalStorageSet(BRIDGE_STORAGE_KEYS.token, tokenEl.value.trim());
+  });
+  const pinotAuthEl = document.getElementById("pinotAuthToken");
+  pinotAuthEl?.addEventListener("change", () => {
+    safeLocalStorageSet(BRIDGE_STORAGE_KEYS.pinotToken, pinotAuthEl.value.trim());
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -2407,6 +3308,15 @@ document.addEventListener("DOMContentLoaded", () => {
   wireDropZone(document.getElementById("dropPinot"));
   wireDropZone(document.getElementById("dropMysql"));
   wireDropZone(document.getElementById("dropLambda"));
+  wireZoneTabs();
+  restoreBridgeSettings();
+  persistBridgeSettingsOnInput();
+  // The bridge bar is always visible, so start polling immediately so the
+  // green/red status pill is accurate before the user opens a Fetch tab.
+  startBridgePolling();
+  document.getElementById("mysqlFetchBtn")?.addEventListener("click", handleMysqlFetchClick);
+  document.getElementById("lambdaFetchBtn")?.addEventListener("click", handleLambdaFetchClick);
+  document.getElementById("pinotFetchBtn")?.addEventListener("click", handlePinotFetchClick);
   document.getElementById("btnGenerate").addEventListener("click", generate);
   document.getElementById("btnDownloadReportPng").addEventListener("click", downloadReportPng);
   document.getElementById("btnDownloadReportHtml").addEventListener("click", downloadReportHtml);

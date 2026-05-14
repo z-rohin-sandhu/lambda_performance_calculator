@@ -255,6 +255,76 @@ open dashboards/gpt_rollout_dashboard.html
 
 The page is fully self-contained (no external dependencies, no servers, no uploads — files never leave your machine). The merge, health classification, sort, and insights logic mirror `scripts/gpt_rollout_health_dashboard.py` and `scripts/run_cloudwatch_review.py`; the Node smoke test in `tests/smoke_dashboard_html.cjs` enforces parity for both pipelines on the sample CSVs.
 
+### Fetch data live via the local bridge
+
+The dashboard's CSV upload path is unchanged. There's now a second tab on each drop zone — **Fetch from bridge** — that pulls the same data straight from your account via a tiny localhost helper, so you never have to export and drag-drop CSVs.
+
+How it works:
+
+```mermaid
+flowchart LR
+  page[Browser dashboard] -->|"POST /query/mysql/adoption"| bridge[python3 scripts/local_data_bridge.py]
+  bridge -->|"boto3 generate_db_auth_token"| sts[AWS RDS]
+  bridge -->|"TLS + IAM auth token"| rds[(RDS MySQL replica)]
+  bridge -->|JSON rows| page
+```
+
+The bridge listens on `127.0.0.1` only — your data never crosses a remote server.
+
+**One-time setup:**
+
+```bash
+# Install runtime deps:
+pip install -r requirements.txt
+
+# Copy the env template and fill in your RDS host / user / region.
+cp .env.example .env  # then edit .env
+```
+
+**Each session:**
+
+```bash
+python3 scripts/local_data_bridge.py
+```
+
+The bridge prints something like:
+
+```text
+2026-05-14 14:30:01 INFO local_data_bridge: Local data bridge listening on http://127.0.0.1:8765
+2026-05-14 14:30:01 INFO local_data_bridge: Bridge token: 7a8e4f1c... (paste into the dashboard's 'Bridge token' field)
+```
+
+Then in the browser dashboard:
+
+1. Open `dashboards/gpt_rollout_dashboard.html` (or your Netlify URL).
+2. The **Bridge connection** bar at the top is the single place to configure the bridge URL + token. Paste the bridge token from the terminal once — it's persisted in `localStorage` and used by every Fetch tab below. The status pill in the bar turns green when the bridge is reachable.
+3. **(MySQL adoption)** Switch the **MySQL adoption CSV** zone to the **Fetch from RDS** tab. Adjust **Last N days** and **Brand IDs** if needed; defaults are `1` and `470,257,466,416,38,221,411,301`. Click **Fetch adoption metrics from RDS**.
+4. **(Lambda from CloudWatch)** Switch the **Lambda CloudWatch CSV** zone to the **Fetch from bridge** tab. Tweak **Environment** (default `prod`), **AWS region** (default `us-west-1`), **Last N days** (default `1`), and optionally a custom **Lambda names** list (leave blank for the env defaults from `default_lambda_names`). The default ignore list (`should_flush.emergency_accumulation`) is applied unless you tick **Skip default ignores**, plus any extras you paste into **Extra ignore patterns**. Click **Fetch lambda metrics from CloudWatch**. This runs `scripts/cloudwatch_review_collect.sh` under the hood and can take 30–90s; the panel shows an elapsed-seconds ticker while it works.
+5. **(Pinot from StarTree)** Switch the **Pinot latency CSV** zone to the **Fetch from bridge** tab. Paste your **Pinot bearer token** (the JWT you'd otherwise pass to curl); it persists in `localStorage` separately from the bridge token because it rotates daily. Tweak **Last N days** (default `1`) and **Brand IDs** if needed. Click **Fetch latency metrics from Pinot**. The bridge runs the hard-coded `pinot_latency.sql` (SELECT-only) and returns the rolled-up TTFB stats.
+6. **Generate dashboard**.
+
+#### Pinot security notes
+
+- The bridge runs **`scripts/sql/pinot_latency.sql` only** — the dashboard cannot supply arbitrary SQL. Only the `__WINDOW_MS__` (days × 86 400 000) and `__BRAND_IDS__` (validated positive ints) placeholders are substituted.
+- Before each request, the bridge re-applies `assert_select_only()` to the rendered SQL. The guard checks: starts with `SELECT`, no `;` except optionally trailing, and rejects any of `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`, `CREATE`, `GRANT`, `REVOKE`, `EXEC`, `CALL`, `MERGE`, `REPLACE`, `LOAD`, `RENAME`, `SET`. Even if the SQL file were maliciously edited, the guard refuses to forward it.
+- The Pinot bearer token never leaves the laptop. It's stored in the browser's `localStorage` and sent only to `http://127.0.0.1:<bridge>/query/pinot/latency`; the bridge forwards it as the `Authorization: Bearer …` header to your StarTree tenant URL over TLS.
+- The Pinot read replica is reachable only over the corporate VPN (Cisco AnyConnect). The bridge inherits the VPN routing from your laptop — if `curl https://pinot.<tenant>.cp.s7e.startree.cloud/sql` works in your terminal, the bridge call works.
+
+Useful bridge CLI flags:
+
+```bash
+python3 scripts/local_data_bridge.py --port 9876   # custom port
+python3 scripts/local_data_bridge.py --no-auth     # local dev only; skips X-Bridge-Token enforcement
+python3 scripts/local_data_bridge.py --verbose     # debug-level logs
+```
+
+**Caveats:**
+
+- **Safari** is stricter than Chrome / Edge / Firefox about HTTPS pages calling `http://127.0.0.1`. When using the bridge, open the dashboard from `file://`, `http://localhost`, or run Safari with **Develop -> Disable Cross-Origin Restrictions** for the session. Chrome/Firefox handle the loopback exception automatically.
+- The bridge generates a fresh **bridge token** on every launch. Re-paste it into the dashboard after restarts (it lives in `localStorage` between page reloads but doesn't survive a bridge restart).
+- The RDS user must be IAM-enabled (`CREATE USER … IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'`) and your AWS credentials must include `rds-db:connect` for the resource ARN. If `aws rds generate-db-auth-token …` works from your terminal, the bridge will work too.
+- The SQL is server-side fixed in [`scripts/sql/mysql_adoption.sql`](scripts/sql/mysql_adoption.sql); only `days` and `brand_ids` are user-controllable, and they're sent through PyMySQL parameterized placeholders.
+
 ### Deploy the dashboard to Netlify
 
 Netlify is the lowest-friction way to share the dashboard as a public URL — no bucket policies, no Block Public Access fights, free TLS.
