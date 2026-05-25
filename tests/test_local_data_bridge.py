@@ -425,25 +425,36 @@ def test_load_pinot_template_returns_select_only_after_substitution(bridge: Modu
 
 
 def test_normalize_pinot_row_matches_dashboard_schema(bridge: ModuleType) -> None:
-    """Normalized Pinot rows present the keys the dashboard expects (as strings)."""
+    """Normalized Pinot rows present the 11-column first/follow-up schema."""
 
-    columns = ["brand_id", "total_requests", "avg_ttfb_ms", "p50_ttfb_ms",
-               "p95_ttfb_ms", "p99_ttfb_ms"]
-    values = [411, 57, 2740.0877192982457, 2381.0, 6483.849999999999, 6701.36]
+    columns = [
+        "brand_id",
+        "first_total_requests", "first_avg_ttfb_ms",
+        "first_p50_ttfb_ms", "first_p95_ttfb_ms", "first_p99_ttfb_ms",
+        "followup_total_requests", "followup_avg_ttfb_ms",
+        "followup_p50_ttfb_ms", "followup_p95_ttfb_ms", "followup_p99_ttfb_ms",
+    ]
+    values = [
+        411,
+        18, 2900.5, 2400.0, 6800.85, 7400.0,
+        39, 2400.6, 2100.0, 6100.12, 6900.0,
+    ]
     row = bridge._normalize_pinot_row(columns, values)
     assert set(row.keys()) == set(columns)
     assert row["brand_id"] == "411"
-    assert row["total_requests"] == "57"
+    assert row["first_total_requests"] == "18"
+    assert row["followup_total_requests"] == "39"
     # Floats are rendered with two decimals.
-    assert row["avg_ttfb_ms"] == "2740.09"
-    assert row["p95_ttfb_ms"] == "6483.85"
+    assert row["first_avg_ttfb_ms"] == "2900.50"
+    assert row["first_p95_ttfb_ms"] == "6800.85"
+    assert row["followup_p95_ttfb_ms"] == "6100.12"
 
 
 def test_fetch_pinot_latency_happy_path(bridge: ModuleType) -> None:
     """End-to-end runner test with a mocked HTTP and template loader."""
 
     def fake_http(*, url: str, body: bytes, bearer_token: str, timeout: int) -> Any:
-        """Stand-in for _post_pinot_sql returning the user's example payload."""
+        """Stand-in for _post_pinot_sql returning a first/followup result set."""
 
         assert "/sql" in url
         assert bearer_token == "fake-pinot-jwt"
@@ -456,12 +467,23 @@ def test_fetch_pinot_latency_happy_path(bridge: ModuleType) -> None:
             "resultTable": {
                 "dataSchema": {
                     "columnNames": [
-                        "brand_id", "total_requests", "avg_ttfb_ms",
-                        "p50_ttfb_ms", "p95_ttfb_ms", "p99_ttfb_ms",
+                        "brand_id",
+                        "first_total_requests", "first_avg_ttfb_ms",
+                        "first_p50_ttfb_ms", "first_p95_ttfb_ms", "first_p99_ttfb_ms",
+                        "followup_total_requests", "followup_avg_ttfb_ms",
+                        "followup_p50_ttfb_ms", "followup_p95_ttfb_ms",
+                        "followup_p99_ttfb_ms",
                     ],
-                    "columnDataTypes": ["INT", "LONG", "DOUBLE", "DOUBLE", "DOUBLE", "DOUBLE"],
+                    "columnDataTypes": [
+                        "INT", "LONG", "DOUBLE", "DOUBLE", "DOUBLE", "DOUBLE",
+                        "LONG", "DOUBLE", "DOUBLE", "DOUBLE", "DOUBLE",
+                    ],
                 },
-                "rows": [[411, 57, 2740.0877192982457, 2381.0, 6483.849999999999, 6701.36]],
+                "rows": [[
+                    411,
+                    18, 2900.5, 2400.0, 6800.85, 7400.0,
+                    39, 2400.6, 2100.0, 6100.12, 6900.0,
+                ]],
             },
             "numRowsResultSet": 1,
             "exceptions": [],
@@ -470,7 +492,10 @@ def test_fetch_pinot_latency_happy_path(bridge: ModuleType) -> None:
         }
         return bridge._PinotHttpResponse(200, json.dumps(canned))
 
-    template = "SELECT brand_id FROM t WHERE first_chunk_timestamp >= now() - __WINDOW_MS__ AND brand_id IN (__BRAND_IDS__)"
+    template = (
+        "SELECT brand_id FROM t WHERE first_chunk_timestamp >= now() - __WINDOW_MS__ "
+        "AND brand_id IN (__BRAND_IDS__)"
+    )
     result = bridge.fetch_pinot_latency(
         config=bridge.BridgeConfig(
             repo_root=Path(__file__).resolve().parents[1],
@@ -491,7 +516,8 @@ def test_fetch_pinot_latency_happy_path(bridge: ModuleType) -> None:
     assert result["time_used_ms"] == 3
     assert len(result["rows"]) == 1
     assert result["rows"][0]["brand_id"] == "411"
-    assert result["rows"][0]["p95_ttfb_ms"] == "6483.85"
+    assert result["rows"][0]["first_p95_ttfb_ms"] == "6800.85"
+    assert result["rows"][0]["followup_p95_ttfb_ms"] == "6100.12"
 
 
 def test_fetch_pinot_latency_raises_on_pinot_exceptions(bridge: ModuleType) -> None:

@@ -64,6 +64,8 @@ module.exports = {
   parseBrandIdsInput, bridgeFetchUrl,
   fetchLambdaCloudwatch, normalizeFetchedLambdaRows, parseLambdaNamesInput,
   fetchPinotLatency, normalizeFetchedPinotRows,
+  bucketHealth, worstHealth, classifyHealth,
+  partitionBySample,
 };
 `;
 
@@ -325,9 +327,13 @@ globalThis.fetch = async (url, init) => {
       async json() {
         return {
           rows: [
-            { brand_id: "411", total_requests: "57",
-              avg_ttfb_ms: "2740.09", p50_ttfb_ms: "2381.00",
-              p95_ttfb_ms: "6483.85", p99_ttfb_ms: "6701.36" },
+            { brand_id: "411",
+              first_total_requests: "18", first_avg_ttfb_ms: "2900.50",
+              first_p50_ttfb_ms: "2400.00", first_p95_ttfb_ms: "6800.85",
+              first_p99_ttfb_ms: "7400.00",
+              followup_total_requests: "39", followup_avg_ttfb_ms: "2400.60",
+              followup_p50_ttfb_ms: "2100.00", followup_p95_ttfb_ms: "6100.12",
+              followup_p99_ttfb_ms: "6900.00" },
           ],
           row_count: 1, fetched_at: "2026-05-14T09:00:00Z",
           days: 1, window_ms: 86400000, brand_ids: [411],
@@ -364,7 +370,101 @@ globalThis.fetch = async (url, init) => {
   logic.validateColumns(pinotNormalized, logic.PINOT_REQUIRED, "normalized pinot rows");
   assertEqual("pinot brand_id string type", typeof pinotNormalized[0].brand_id, "string");
   assertEqual("pinot brand_id value", pinotNormalized[0].brand_id, "411");
-  assertEqual("pinot p95 string preserved", pinotNormalized[0].p95_ttfb_ms, "6483.85");
+  assertEqual(
+    "pinot first p95 string preserved",
+    pinotNormalized[0].first_p95_ttfb_ms,
+    "6800.85",
+  );
+  assertEqual(
+    "pinot followup p95 string preserved",
+    pinotNormalized[0].followup_p95_ttfb_ms,
+    "6100.12",
+  );
+
+  /* ----- Worst-of-buckets classifyHealth ----- */
+
+  const thresholds = {
+    p95GreenMax: 5000, p95RedMin: 8000,
+    p99GreenMax: 8000, p99RedMin: 15000,
+  };
+  // First-utterance is GREEN (p95=3000, p99=5000), follow-up is RED (p95=9000).
+  // The row should roll up to RED.
+  const mixed = {
+    first_p95_ttfb_ms: 3000, first_p99_ttfb_ms: 5000,
+    followup_p95_ttfb_ms: 9000, followup_p99_ttfb_ms: 13000,
+  };
+  assertEqual("worst-of-buckets is RED when followup is RED", logic.classifyHealth(mixed, thresholds), "RED");
+  // Both GREEN -> GREEN.
+  assertEqual(
+    "both buckets GREEN -> GREEN",
+    logic.classifyHealth(
+      { first_p95_ttfb_ms: 3000, first_p99_ttfb_ms: 5000,
+        followup_p95_ttfb_ms: 2000, followup_p99_ttfb_ms: 4000 },
+      thresholds,
+    ),
+    "GREEN",
+  );
+  // First-utterance is YELLOW, follow-up is GREEN -> row is YELLOW.
+  assertEqual(
+    "first YELLOW + follow GREEN -> YELLOW",
+    logic.classifyHealth(
+      { first_p95_ttfb_ms: 6000, first_p99_ttfb_ms: 7000,
+        followup_p95_ttfb_ms: 3000, followup_p99_ttfb_ms: 5000 },
+      thresholds,
+    ),
+    "YELLOW",
+  );
+  assertEqual("worstHealth helper picks RED over YELLOW", logic.worstHealth("YELLOW", "RED"), "RED");
+  assertEqual("worstHealth helper picks YELLOW over GREEN", logic.worstHealth("GREEN", "YELLOW"), "YELLOW");
+
+  /* ----- Sample-size threshold (min sample) ----- */
+
+  // Two brands: "Big" with N=200 (above) and "Tiny" with N=1 (below threshold 10).
+  const synthMerged = [
+    {
+      brand_id: "1", brand_name: "Big",
+      total_sessions: 50, total_utterances: 700, avg_utterances_per_session: 14,
+      first_total_requests: 80, first_avg_ttfb_ms: 1500,
+      first_p50_ttfb_ms: 1400, first_p95_ttfb_ms: 3000, first_p99_ttfb_ms: 4000,
+      followup_total_requests: 120, followup_avg_ttfb_ms: 1100,
+      followup_p50_ttfb_ms: 1000, followup_p95_ttfb_ms: 2500, followup_p99_ttfb_ms: 3500,
+      total_requests: 200,
+    },
+    {
+      brand_id: "2", brand_name: "Tiny",
+      total_sessions: 1, total_utterances: 1, avg_utterances_per_session: 1,
+      first_total_requests: 1, first_avg_ttfb_ms: 1600,
+      first_p50_ttfb_ms: 1600, first_p95_ttfb_ms: 1600, first_p99_ttfb_ms: 1600,
+      followup_total_requests: 0, followup_avg_ttfb_ms: NaN,
+      followup_p50_ttfb_ms: NaN, followup_p95_ttfb_ms: NaN, followup_p99_ttfb_ms: NaN,
+      total_requests: 1,
+    },
+  ];
+  const synthSummary = logic.buildSummary(synthMerged, thresholds, 10);
+  assertEqual("buildSummary stamps below_min_sample on tiny rows",
+    synthSummary.find((r) => r.brand_name === "Tiny").below_min_sample, true);
+  assertEqual("buildSummary keeps below_min_sample=false on healthy rows",
+    synthSummary.find((r) => r.brand_name === "Big").below_min_sample, false);
+
+  const { above, below } = logic.partitionBySample(synthSummary);
+  assertEqual("partitionBySample.above keeps the high-N brand",
+    above.map((r) => r.brand_name), ["Big"]);
+  assertEqual("partitionBySample.below filters the low-N brand",
+    below.map((r) => r.brand_name), ["Tiny"]);
+
+  // Insights should be computed from above-threshold rows only - "slowest"
+  // must NOT be the tiny brand even though its raw p95 is technically higher.
+  const filteredInsights = logic.computeInsights(above);
+  assertEqual("computeInsights picks the high-N brand as slowest",
+    filteredInsights.slowest.brand_name, "Big");
+
+  // Empty above-threshold case: threshold of 500 hides everything.
+  const strict = logic.buildSummary(synthMerged, thresholds, 500);
+  const strictParts = logic.partitionBySample(strict);
+  assertEqual("strict threshold pushes all rows below the line",
+    strictParts.above.length, 0);
+  assertEqual("strict threshold preserves the original row count below",
+    strictParts.below.length, 2);
 
   console.log("\nAll JS pipeline smoke checks pass.");
 })().catch((err) => {

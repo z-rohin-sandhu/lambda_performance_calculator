@@ -592,19 +592,25 @@ def load_pinot_template(repo_root: Path) -> str:
 
 
 def _normalize_pinot_row(column_names: list[str], values: list[Any]) -> dict[str, Any]:
-    """Zip a Pinot result row into the dashboard's Pinot CSV row shape."""
+    """Zip a Pinot result row into the dashboard's 11-column Pinot row shape."""
 
     row: dict[str, Any] = {}
     for name, value in zip(column_names, values):
         row[name] = "" if value is None else value
-    # Coerce types to strings (dashboard expects parseCsv-like dict-of-strings).
+    # Coerce every numeric to a stable string representation so the dashboard's
+    # validateColumns + parseCsv-shaped objects keep working unchanged.
     return {
         "brand_id": str(row.get("brand_id", "")).strip(),
-        "total_requests": _to_int_str(row.get("total_requests")),
-        "avg_ttfb_ms": _to_float_str(row.get("avg_ttfb_ms")),
-        "p50_ttfb_ms": _to_float_str(row.get("p50_ttfb_ms")),
-        "p95_ttfb_ms": _to_float_str(row.get("p95_ttfb_ms")),
-        "p99_ttfb_ms": _to_float_str(row.get("p99_ttfb_ms")),
+        "first_total_requests": _to_int_str(row.get("first_total_requests")),
+        "first_avg_ttfb_ms": _to_float_str(row.get("first_avg_ttfb_ms")),
+        "first_p50_ttfb_ms": _to_float_str(row.get("first_p50_ttfb_ms")),
+        "first_p95_ttfb_ms": _to_float_str(row.get("first_p95_ttfb_ms")),
+        "first_p99_ttfb_ms": _to_float_str(row.get("first_p99_ttfb_ms")),
+        "followup_total_requests": _to_int_str(row.get("followup_total_requests")),
+        "followup_avg_ttfb_ms": _to_float_str(row.get("followup_avg_ttfb_ms")),
+        "followup_p50_ttfb_ms": _to_float_str(row.get("followup_p50_ttfb_ms")),
+        "followup_p95_ttfb_ms": _to_float_str(row.get("followup_p95_ttfb_ms")),
+        "followup_p99_ttfb_ms": _to_float_str(row.get("followup_p99_ttfb_ms")),
     }
 
 
