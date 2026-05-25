@@ -494,6 +494,88 @@
       box-shadow: inset 0 0 0 9999px rgba(231, 76, 60, 0.22);
     }
 
+    /* Rollout vs control comparison panel. Two side-by-side cards plus a
+       "delta + verdict" row below. */
+    .cohort-comparison {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin: 4px 0 16px;
+    }
+    @media (max-width: 720px) { .cohort-comparison { grid-template-columns: 1fr; } }
+    .cohort-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+    }
+    .cohort-card.rollout { border-color: rgba(91, 141, 239, 0.45); }
+    .cohort-card.control { border-color: rgba(167, 139, 250, 0.45); }
+    .cohort-card .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .cohort-card .label .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+    .cohort-card.rollout .label .dot { background: #5b8def; }
+    .cohort-card.control .label .dot { background: #a78bfa; }
+    .cohort-card .headline {
+      font-size: 22px;
+      font-weight: 700;
+      margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .cohort-card .headline .unit { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 4px; }
+    .cohort-card .sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .cohort-card .sub strong { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .cohort-card .health-mini { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+    .cohort-card .health-mini .pill { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #0f1115; }
+    .cohort-card .health-mini .pill.green { background: var(--green); }
+    .cohort-card .health-mini .pill.yellow { background: var(--yellow); }
+    .cohort-card .health-mini .pill.red { background: var(--red); color: white; }
+    .cohort-card .empty {
+      font-size: 12px; color: var(--muted); font-style: italic;
+    }
+    .cohort-verdict {
+      grid-column: 1 / -1;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .cohort-verdict .arrow { font-size: 16px; font-weight: 700; }
+    .cohort-verdict.delta-better { color: #b9f6ca; }
+    .cohort-verdict.delta-worse { color: #ffd7d2; }
+    .cohort-verdict.delta-neutral { color: var(--muted); }
+    .cohort-verdict code { color: var(--text); }
+
+    /* Subtle row tint for the cohort column in the brand health table. */
+    .brand-summary-table td.cohort-rollout {
+      color: #c2d4f7;
+    }
+    .brand-summary-table td.cohort-control {
+      color: #d9c8f7;
+    }
+    .brand-summary-table th.col-cohort { width: 80px; }
+
     /* Hidden-by-threshold notice + zero-results empty state. */
     .sample-banner {
       background: rgba(241, 196, 15, 0.10);
@@ -506,6 +588,12 @@
       line-height: 1.5;
     }
     .sample-banner code { color: var(--text); }
+    /* Info variant: same shape, blue/grey tone for merge-gap explainers. */
+    .sample-banner.sample-banner-info {
+      background: rgba(91, 141, 239, 0.08);
+      border-color: rgba(91, 141, 239, 0.32);
+      color: #cbd5f5;
+    }
     .empty-state {
       background: var(--panel-2);
       border: 1px dashed var(--border);
@@ -678,8 +766,10 @@
               <input id="pinotAuthToken" type="password" placeholder="paste the JWT (rotates every ~24h)" />
               <label for="pinotFetchDays">Last N days</label>
               <input id="pinotFetchDays" type="number" min="1" max="30" value="1" />
-              <label for="pinotFetchBrandIds">Brand IDs</label>
+              <label for="pinotFetchBrandIds" title="Brands you've enabled GPT WebSocket on. The dashboard's primary cohort.">Rollout brand IDs<br /><span style="font-size: 10px; font-weight: normal; text-transform: none; letter-spacing: 0;">(WebSocket-enabled)</span></label>
               <textarea id="pinotFetchBrandIds" rows="2">470,257,466,416,38,221,411,301</textarea>
+              <label for="pinotControlBrandIds" title="Comparison cohort. Leave blank to skip the comparison view.">Control brand IDs<br /><span style="font-size: 10px; font-weight: normal; text-transform: none; letter-spacing: 0;">(traditional GPT; optional)</span></label>
+              <textarea id="pinotControlBrandIds" rows="2" placeholder="e.g. 367,311,371,519,246,45,259,454 — leave blank to skip the comparison">367,311,371,519,246,45,259,454</textarea>
               <label for="pinotMinSample" title="Hide brand rows in the dashboard table that have fewer total Pinot requests (first + follow-up) than this. Defaults to 10. Below this, percentiles are too noisy to be useful for decisioning.">Min sample size</label>
               <input id="pinotMinSample" type="number" min="1" max="10000" value="10" />
             </div>
@@ -785,14 +875,17 @@
       <div id="brandSection" class="report-section hidden">
         <h2 class="section-title">Brand health</h2>
         <div class="insights" id="insights"></div>
+        <div id="cohortComparison" class="cohort-comparison hidden"></div>
 
         <div class="table-wrap">
           <div id="brandSampleBanner" class="sample-banner hidden"></div>
+          <div id="brandMergeGapNote" class="sample-banner sample-banner-info hidden"></div>
           <div id="brandEmptyState" class="empty-state hidden"></div>
           <table id="summaryTable" class="brand-summary-table">
             <thead>
               <tr>
                 <th rowspan="2">Brand</th>
+                <th rowspan="2" class="col-cohort col-cohort-header hidden">Cohort</th>
                 <th rowspan="2">Sessions</th>
                 <th rowspan="2">Avg utt /<br />session</th>
                 <th rowspan="2" title="Total Pinot requests in the window (first + follow-up).">N</th>
@@ -873,7 +966,7 @@ const MYSQL_REQUIRED = [
   "total_utterances", "avg_utterances_per_session",
 ];
 const SUMMARY_COLUMNS = [
-  "brand_name", "total_sessions", "avg_utterances_per_session",
+  "brand_name", "cohort", "total_sessions", "avg_utterances_per_session",
   "total_requests",
   "first_total_requests", "first_avg_ttfb_ms", "first_p50_ttfb_ms",
   "first_p95_ttfb_ms", "first_p99_ttfb_ms",
@@ -1008,6 +1101,9 @@ function mergeOnBrandId(pinot, mysql) {
       followup_p95_ttfb_ms: toNumber(p.followup_p95_ttfb_ms),
       followup_p99_ttfb_ms: toNumber(p.followup_p99_ttfb_ms),
       total_requests: total,
+      // Cohort is optional: "rollout" / "control" when the user enabled the
+      // comparison view, undefined when only one cohort was fetched.
+      cohort: p.cohort || undefined,
     });
   }
   if (merged.length === 0) {
@@ -1080,6 +1176,112 @@ function partitionBySample(summary) {
     else above.push(row);
   }
   return { above, below };
+}
+
+function buildPinotOnlySummary(pinotRows, thresholds, minSample) {
+  // Same shape as buildSummary's output but works directly off the bridge's
+  // Pinot rows without requiring the MySQL adoption join. Used by the cohort
+  // comparison so that control-cohort brands (which MySQL doesn't know about)
+  // still contribute to the rollup. Brand names fall back to "#<id>".
+  const safeMinSample = Math.max(1, Number(minSample) || 1);
+  return pinotRows.map((p) => {
+    const firstReq = toNumber(p.first_total_requests);
+    const followReq = toNumber(p.followup_total_requests);
+    const total = (Number.isFinite(firstReq) ? firstReq : 0)
+                + (Number.isFinite(followReq) ? followReq : 0);
+    const firstP95 = toNumber(p.first_p95_ttfb_ms);
+    const firstP99 = toNumber(p.first_p99_ttfb_ms);
+    const followP95 = toNumber(p.followup_p95_ttfb_ms);
+    const followP99 = toNumber(p.followup_p99_ttfb_ms);
+    const firstHealth = bucketHealth(firstP95, firstP99, thresholds);
+    const followupHealth = bucketHealth(followP95, followP99, thresholds);
+    return {
+      brand_id: p.brand_id,
+      brand_name: `#${p.brand_id}`,
+      total_sessions: NaN,
+      first_total_requests: firstReq,
+      first_avg_ttfb_ms: toNumber(p.first_avg_ttfb_ms),
+      first_p50_ttfb_ms: toNumber(p.first_p50_ttfb_ms),
+      first_p95_ttfb_ms: firstP95,
+      first_p99_ttfb_ms: firstP99,
+      followup_total_requests: followReq,
+      followup_avg_ttfb_ms: toNumber(p.followup_avg_ttfb_ms),
+      followup_p50_ttfb_ms: toNumber(p.followup_p50_ttfb_ms),
+      followup_p95_ttfb_ms: followP95,
+      followup_p99_ttfb_ms: followP99,
+      total_requests: total,
+      first_health: firstHealth,
+      followup_health: followupHealth,
+      health_status: worstHealth(firstHealth, followupHealth),
+      cohort: p.cohort || undefined,
+      below_min_sample: total < safeMinSample,
+    };
+  });
+}
+
+function aggregateCohort(rows) {
+  // Compute decision-grade summary stats for one cohort.
+  // first_p95 is request-weighted across brands: a single big brand drowns
+  // out a sliver of a small brand, which matches how an end-user feels the
+  // latency. Returns null when the cohort is empty so callers can render an
+  // explicit "no data" state instead of zeros.
+  if (!rows || rows.length === 0) return null;
+  let totalRequests = 0;
+  let weightedFirstP95Num = 0; // sum(brand_first_p95 * brand_first_N)
+  let weightedFirstP95Den = 0; // sum(brand_first_N) - same units as totalRequests
+  let weightedFollowP95Num = 0;
+  let weightedFollowP95Den = 0;
+  let totalSessions = 0;
+  let green = 0, yellow = 0, red = 0;
+  for (const row of rows) {
+    const tr = Number.isFinite(row.total_requests) ? row.total_requests : 0;
+    totalRequests += tr;
+    const firstN = Number.isFinite(row.first_total_requests) ? row.first_total_requests : 0;
+    const followN = Number.isFinite(row.followup_total_requests) ? row.followup_total_requests : 0;
+    if (firstN > 0 && Number.isFinite(row.first_p95_ttfb_ms)) {
+      weightedFirstP95Num += row.first_p95_ttfb_ms * firstN;
+      weightedFirstP95Den += firstN;
+    }
+    if (followN > 0 && Number.isFinite(row.followup_p95_ttfb_ms)) {
+      weightedFollowP95Num += row.followup_p95_ttfb_ms * followN;
+      weightedFollowP95Den += followN;
+    }
+    if (Number.isFinite(row.total_sessions)) totalSessions += row.total_sessions;
+    if (row.health_status === "GREEN") green++;
+    else if (row.health_status === "YELLOW") yellow++;
+    else if (row.health_status === "RED") red++;
+  }
+  return {
+    brandCount: rows.length,
+    totalRequests,
+    totalSessions,
+    firstP95: weightedFirstP95Den > 0 ? weightedFirstP95Num / weightedFirstP95Den : null,
+    followupP95: weightedFollowP95Den > 0 ? weightedFollowP95Num / weightedFollowP95Den : null,
+    greenCount: green,
+    yellowCount: yellow,
+    redCount: red,
+  };
+}
+
+function computeCohortComparison(summaryAbove) {
+  // Split above-threshold rows by cohort. Returns null when no cohort labels
+  // are present so the renderer can omit the comparison section entirely.
+  if (!summaryAbove || summaryAbove.length === 0) return null;
+  const tagged = summaryAbove.filter((r) => r.cohort === "rollout" || r.cohort === "control");
+  if (tagged.length === 0) return null;
+  const rollout = aggregateCohort(tagged.filter((r) => r.cohort === "rollout"));
+  const control = aggregateCohort(tagged.filter((r) => r.cohort === "control"));
+  let firstDelta = null;
+  let followDelta = null;
+  if (rollout && control) {
+    if (rollout.firstP95 != null && control.firstP95 != null) {
+      firstDelta = rollout.firstP95 - control.firstP95;
+    }
+    if (rollout.followupP95 != null && control.followupP95 != null) {
+      followDelta = rollout.followupP95 - control.followupP95;
+    }
+  }
+  return { rollout, control, firstDelta, followDelta };
 }
 
 function computeInsights(summary) {
@@ -2340,6 +2542,27 @@ function renderReportCanvas(brandSummary, brandInsights, lambdaSummary, lambdaIn
     60
   );
 
+  // If a cohort comparison is available, draw the one-line headline just
+  // under the meta so anyone glancing at the PNG sees the rollout-vs-control
+  // delta before they even reach the table.
+  if (hasBrand) {
+    const comparison = computeCohortComparison(brandSummary);
+    if (comparison && comparison.firstDelta != null) {
+      const absMs = Math.round(Math.abs(comparison.firstDelta));
+      const direction = comparison.firstDelta > 0
+        ? "slower than" : comparison.firstDelta < 0 ? "faster than" : "equal to";
+      const color = comparison.firstDelta > 0
+        ? "#b45309" : comparison.firstDelta < 0 ? "#047857" : "#374151";
+      ctx.fillStyle = color;
+      ctx.font = "bold 13px -apple-system, Segoe UI, Roboto, sans-serif";
+      ctx.fillText(
+        `Rollout (WebSocket) is ${absMs} ms ${direction} control (traditional) at first-utterance p95.`,
+        marginX,
+        82
+      );
+    }
+  }
+
   let y = headerH;
 
   if (hasBrand) {
@@ -2441,6 +2664,7 @@ function renderTable(summary) {
   const tbody = document.querySelector("#summaryTable tbody");
   const tableEl = document.getElementById("summaryTable");
   const emptyEl = document.getElementById("brandEmptyState");
+  const cohortHeaderEl = document.querySelector("#summaryTable th.col-cohort-header");
   if (!summary || summary.length === 0) {
     // Nothing meets the threshold (or upstream gave us zero rows). Hide the
     // table chrome entirely so the empty-state banner is the only thing the
@@ -2452,12 +2676,31 @@ function renderTable(summary) {
   }
   if (tableEl) tableEl.classList.remove("hidden");
   if (emptyEl) emptyEl.classList.add("hidden");
-  tbody.innerHTML = summary.map((row) => {
+  // Show the Cohort column header only when at least one row carries a label.
+  const hasCohort = summary.some((row) => row.cohort === "rollout" || row.cohort === "control");
+  if (cohortHeaderEl) {
+    cohortHeaderEl.classList.toggle("hidden", !hasCohort);
+  }
+  // Stable secondary sort: rollout brands before control brands when both
+  // cohorts exist; primary sort (first_p95 desc) preserved by buildSummary.
+  const ordered = hasCohort
+    ? [...summary].sort((a, b) => {
+        const rank = (r) => (r.cohort === "rollout" ? 0 : r.cohort === "control" ? 1 : 2);
+        const rankDelta = rank(a) - rank(b);
+        if (rankDelta !== 0) return rankDelta;
+        return 0; // keep the existing first_p95 order within each cohort
+      })
+    : summary;
+  tbody.innerHTML = ordered.map((row) => {
     const tintFirst = bucketTintClass(row.health_status, row.first_health);
     const tintFollow = bucketTintClass(row.health_status, row.followup_health);
+    const cohortCell = hasCohort
+      ? `<td class="cohort-${row.cohort || "unknown"}">${row.cohort ? escapeHtml(row.cohort) : "—"}</td>`
+      : "";
     return `
     <tr class="row-${row.health_status.toLowerCase()}">
       <td class="brand-cell">${escapeHtml(row.brand_name)}</td>
+      ${cohortCell}
       <td>${fmtCount(row.total_sessions)}</td>
       <td>${Number.isFinite(row.avg_utterances_per_session) ? row.avg_utterances_per_session.toFixed(2) : "—"}</td>
       <td><strong>${fmtCount(row.total_requests)}</strong></td>
@@ -2475,6 +2718,70 @@ function renderTable(summary) {
     </tr>
   `;
   }).join("");
+}
+
+function renderCohortComparison(comparison) {
+  // Render the rollout / control comparison block. Hidden entirely when no
+  // cohort labels are present (= user didn't supply control IDs).
+  const container = document.getElementById("cohortComparison");
+  if (!container) return;
+  if (!comparison) {
+    container.classList.add("hidden");
+    container.innerHTML = "";
+    return;
+  }
+  container.classList.remove("hidden");
+
+  const card = (label, info, cohortClass) => {
+    if (!info) {
+      return `<div class="cohort-card ${cohortClass}">
+        <div class="label"><span class="dot"></span>${label}</div>
+        <div class="empty">No brand in this cohort had data above the sample threshold.</div>
+      </div>`;
+    }
+    return `<div class="cohort-card ${cohortClass}">
+      <div class="label"><span class="dot"></span>${label}</div>
+      <div class="headline">${fmtMs(info.firstP95)} <span class="unit">first p95</span></div>
+      <div class="sub">
+        <span><strong>${fmtCount(info.brandCount)}</strong> brand${info.brandCount === 1 ? "" : "s"}</span>
+        <span><strong>${fmtCount(info.totalRequests)}</strong> total requests</span>
+        <span>follow-up p95 <strong>${fmtMs(info.followupP95)}</strong></span>
+      </div>
+      <div class="health-mini">
+        <span class="pill green">GREEN ${info.greenCount}</span>
+        <span class="pill yellow">YELLOW ${info.yellowCount}</span>
+        <span class="pill red">RED ${info.redCount}</span>
+      </div>
+    </div>`;
+  };
+
+  const verdict = (() => {
+    if (comparison.firstDelta == null) {
+      return `<div class="cohort-verdict delta-neutral">
+        Cannot compare first p95 yet — one of the cohorts has no above-threshold brand.
+      </div>`;
+    }
+    const delta = comparison.firstDelta;
+    const absMs = Math.round(Math.abs(delta));
+    const direction = delta > 0 ? "slower than" : delta < 0 ? "faster than" : "equal to";
+    const cls = delta > 0 ? "delta-worse" : delta < 0 ? "delta-better" : "delta-neutral";
+    const arrow = delta > 0 ? "↑" : delta < 0 ? "↓" : "•";
+    let followNote = "";
+    if (comparison.followDelta != null) {
+      const fAbs = Math.round(Math.abs(comparison.followDelta));
+      const fDir = comparison.followDelta > 0 ? "slower" : comparison.followDelta < 0 ? "faster" : "equal";
+      followNote = ` Follow-up p95 is <code>${fAbs} ms ${fDir}</code>.`;
+    }
+    return `<div class="cohort-verdict ${cls}">
+      <span class="arrow">${arrow}</span>
+      <span>Rollout (WebSocket) is <strong>${absMs} ms ${direction}</strong> control (traditional) at first-utterance p95.${followNote}</span>
+    </div>`;
+  })();
+
+  container.innerHTML =
+    card("Rollout (WebSocket)", comparison.rollout, "rollout")
+    + card("Control (Traditional)", comparison.control, "control")
+    + verdict;
 }
 
 function renderSampleBanner(above, below, minSample) {
@@ -2530,6 +2837,43 @@ function renderSampleBanner(above, below, minSample) {
     hidden because total requests &lt; <strong>${minSample}</strong>:
     ${list}. Adjust the <em>Min sample size</em> field to include them.`;
   bannerEl.classList.remove("hidden");
+}
+
+function renderMergeGapNote(unmerged) {
+  // Show a small note when Pinot returned brand rows that MySQL doesn't know
+  // about. They're not in the brand table (no sessions / name), but they DO
+  // contribute to the Cohort comparison above, so users need to see that the
+  // table is a subset of the headline numbers.
+  const el = document.getElementById("brandMergeGapNote");
+  if (!el) return;
+  if (!unmerged || unmerged.length === 0) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+  // Group by cohort for a more useful breakdown.
+  const byCohort = { rollout: [], control: [], other: [] };
+  for (const row of unmerged) {
+    const bucket = row.cohort === "rollout" ? "rollout"
+                 : row.cohort === "control" ? "control"
+                 : "other";
+    byCohort[bucket].push(row);
+  }
+  const renderBucket = (label, rows) => {
+    if (rows.length === 0) return "";
+    const ids = rows
+      .map((r) => `<code>${escapeHtml(String(r.brand_id))}</code> (N=${fmtCount(r.total_requests)})`)
+      .join(", ");
+    return `<div><strong>${label}:</strong> ${ids}</div>`;
+  };
+  el.innerHTML = `
+    <div><strong>${unmerged.length}</strong> Pinot brand${unmerged.length === 1 ? "" : "s"}
+    had data but aren't in MySQL's adoption table, so they don't appear below.
+    They <em>are</em> counted in the Cohort comparison above.</div>
+    ${renderBucket("Rollout (WebSocket)", byCohort.rollout)}
+    ${renderBucket("Control (Traditional)", byCohort.control)}
+    ${renderBucket("Other", byCohort.other)}`;
+  el.classList.remove("hidden");
 }
 
 function renderLambdaInsights(insights) {
@@ -2765,18 +3109,38 @@ function generate() {
 
     // Brand section: render only when both Pinot + MySQL are supplied.
     if (state.pinotRows && state.mysqlRows) {
+      const thresholds = readThresholds();
       const merged = mergeOnBrandId(state.pinotRows, state.mysqlRows);
-      const summary = buildSummary(merged, readThresholds(), state.minSample);
+      const summary = buildSummary(merged, thresholds, state.minSample);
       state.summary = summary;
       const { above, below } = partitionBySample(summary);
       state.summaryAbove = above;
       state.summaryBelow = below;
+      // Cohort comparison is computed from RAW Pinot rows (not the merged set)
+      // so brands MySQL doesn't know about - notably the traditional-GPT
+      // control cohort - still contribute to the rollout-vs-control rollup.
+      // The brand table stays merge-bound for human-readable names + sessions.
+      const pinotOnly = buildPinotOnlySummary(state.pinotRows, thresholds, state.minSample);
+      const pinotAbove = pinotOnly.filter((r) => !r.below_min_sample);
+      state.pinotOnlySummary = pinotOnly;
+      state.cohortComparison = computeCohortComparison(pinotAbove);
+      // Track brands Pinot saw but the merge dropped so we can surface them.
+      const mergedIds = new Set(merged.map((r) => String(r.brand_id)));
+      state.unmergedPinotBrands = pinotOnly
+        .filter((r) => !mergedIds.has(String(r.brand_id)))
+        .map((r) => ({
+          brand_id: r.brand_id,
+          cohort: r.cohort,
+          total_requests: r.total_requests,
+        }));
       // Insights + table + chart all use only above-threshold rows so a
       // 1-sample brand doesn't get crowned "slowest" or plotted at full size.
       state.insights = computeInsights(above);
       renderInsights(state.insights);
+      renderCohortComparison(state.cohortComparison);
       renderTable(above);
       renderSampleBanner(above, below, state.minSample);
+      renderMergeGapNote(state.unmergedPinotBrands);
       brandSectionEl.classList.remove("hidden");
     } else {
       brandSectionEl.classList.add("hidden");
@@ -2813,17 +3177,28 @@ function regenerateBrandViewFromState() {
   // the existing in-memory summary, then redraw the brand-side views.
   if (!state.summary) return;
   state.minSample = readMinSample();
-  // Stamp the new below_min_sample flag against the updated threshold.
+  // Stamp the new below_min_sample flag against the updated threshold for
+  // both the merged summary AND the pinot-only summary (so the cohort
+  // comparison filters consistently).
   for (const row of state.summary) {
     row.below_min_sample = (row.total_requests || 0) < state.minSample;
+  }
+  if (state.pinotOnlySummary) {
+    for (const row of state.pinotOnlySummary) {
+      row.below_min_sample = (row.total_requests || 0) < state.minSample;
+    }
   }
   const { above, below } = partitionBySample(state.summary);
   state.summaryAbove = above;
   state.summaryBelow = below;
   state.insights = computeInsights(above);
+  const pinotAbove = (state.pinotOnlySummary || []).filter((r) => !r.below_min_sample);
+  state.cohortComparison = computeCohortComparison(pinotAbove);
   renderInsights(state.insights);
+  renderCohortComparison(state.cohortComparison);
   renderTable(above);
   renderSampleBanner(above, below, state.minSample);
+  renderMergeGapNote(state.unmergedPinotBrands);
   renderDashboard(state.summaryAbove, state.lambdaSummary);
   document.getElementById("btnDownloadCsv").disabled = !state.summary;
 }
@@ -2867,12 +3242,18 @@ function downloadReportPng() {
 
 function brandSectionHtml(summary, insights) {
   if (!summary || !insights) return "";
+  const comparison = computeCohortComparison(summary);
+  const hasCohort = comparison != null;
   const tableRows = summary.map((row) => {
     const cls = `row-${row.health_status.toLowerCase()}`;
     const tintFirst = bucketTintClass(row.health_status, row.first_health);
     const tintFollow = bucketTintClass(row.health_status, row.followup_health);
+    const cohortCell = hasCohort
+      ? `<td>${row.cohort ? escapeHtml(row.cohort) : "—"}</td>`
+      : "";
     return `<tr class="${cls}">
       <td>${escapeHtml(row.brand_name)}</td>
+      ${cohortCell}
       <td class="num">${fmtCount(row.total_sessions)}</td>
       <td class="num">${Number.isFinite(row.avg_utterances_per_session) ? row.avg_utterances_per_session.toFixed(2) : "—"}</td>
       <td class="num"><strong>${fmtCount(row.total_requests)}</strong></td>
@@ -2912,13 +3293,53 @@ function brandSectionHtml(summary, insights) {
       <div class="sub">${insights.healthiest ? "first p95 " + fmtMs(insights.healthiest.first_p95_ttfb_ms) : ""}</div></div>`,
   ].join("\n");
 
+  const cohortHtml = (() => {
+    if (!comparison) return "";
+    const card = (label, info, cls) => {
+      if (!info) {
+        return `<div class="cohort-card ${cls}"><div class="label">${label}</div>
+          <div class="empty">No brand in this cohort had data above the sample threshold.</div></div>`;
+      }
+      return `<div class="cohort-card ${cls}">
+        <div class="label">${label}</div>
+        <div class="headline">${fmtMs(info.firstP95)} <span class="unit">first p95</span></div>
+        <div class="sub">
+          <span>${fmtCount(info.brandCount)} brand${info.brandCount === 1 ? "" : "s"}</span>
+          <span>${fmtCount(info.totalRequests)} requests</span>
+          <span>follow-up p95 ${fmtMs(info.followupP95)}</span>
+        </div>
+        <div class="health-mini">
+          <span class="pill green">GREEN ${info.greenCount}</span>
+          <span class="pill yellow">YELLOW ${info.yellowCount}</span>
+          <span class="pill red">RED ${info.redCount}</span>
+        </div>
+      </div>`;
+    };
+    let verdict = "";
+    if (comparison.firstDelta != null) {
+      const absMs = Math.round(Math.abs(comparison.firstDelta));
+      const direction = comparison.firstDelta > 0
+        ? "slower than" : comparison.firstDelta < 0 ? "faster than" : "equal to";
+      verdict = `<div class="cohort-verdict">
+        Rollout (WebSocket) is <strong>${absMs} ms ${direction}</strong> control (traditional) at first-utterance p95.
+      </div>`;
+    }
+    return `<div class="cohort-comparison">
+      ${card("Rollout (WebSocket)", comparison.rollout, "rollout")}
+      ${card("Control (Traditional)", comparison.control, "control")}
+      ${verdict}
+    </div>`;
+  })();
+
   return `
     <h2 class="section-h">Brand health</h2>
     <div class="insights">${insightCards}</div>
+    ${cohortHtml}
     <table class="brand-table">
       <thead>
         <tr>
           <th rowspan="2">Brand</th>
+          ${hasCohort ? '<th rowspan="2">Cohort</th>' : ""}
           <th rowspan="2">Sessions</th>
           <th rowspan="2">Avg utt/sess</th>
           <th rowspan="2">N</th>
@@ -3084,6 +3505,21 @@ function buildReportHtml(brandSummary, brandInsights, lambdaSummary, lambdaInsig
   .brand-table th.grp-follow, .brand-table td.grp-follow { background: rgba(167, 139, 250, 0.07); }
   .brand-table td.bucket-yellow { background: rgba(241, 196, 15, 0.20) !important; }
   .brand-table td.bucket-red { background: rgba(231, 76, 60, 0.22) !important; }
+  .cohort-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .cohort-card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; }
+  .cohort-card.rollout { border-left: 3px solid #5b8def; }
+  .cohort-card.control { border-left: 3px solid #a78bfa; }
+  .cohort-card .label { font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 0.06em; }
+  .cohort-card .headline { font-size: 20px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .cohort-card .headline .unit { font-size: 12px; color: #64748b; font-weight: 500; margin-left: 4px; }
+  .cohort-card .sub { font-size: 12px; color: #64748b; margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .cohort-card .empty { font-size: 12px; color: #64748b; font-style: italic; }
+  .cohort-card .health-mini { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .cohort-card .health-mini .pill { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #0f1115; }
+  .cohort-card .health-mini .pill.green { background: ${HEALTH_COLORS.GREEN}; }
+  .cohort-card .health-mini .pill.yellow { background: ${HEALTH_COLORS.YELLOW}; }
+  .cohort-card .health-mini .pill.red { background: ${HEALTH_COLORS.RED}; color: white; }
+  .cohort-verdict { grid-column: 1 / -1; padding: 10px 14px; background: #f1f5f9; border-radius: 8px; font-size: 13px; color: #0f172a; }
   .signals { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 18px; margin-bottom: 24px; }
   .signals .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
   .signals .chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px;
@@ -3209,14 +3645,24 @@ function resetAll() {
   state.lambdaRows = null; state.lambdaName = null;
   state.summary = null; state.summaryAbove = null; state.summaryBelow = null;
   state.insights = null;
+  state.cohortComparison = null;
+  state.pinotOnlySummary = null;
+  state.unmergedPinotBrands = null;
   state.lambdaSummary = null; state.lambdaInsights = null;
-  // Clear the brand-section banners so they don't carry over.
+  // Clear the brand-section banners + cohort comparison block so they don't
+  // carry over across reset.
   const sampleBanner = document.getElementById("brandSampleBanner");
+  const mergeGapNote = document.getElementById("brandMergeGapNote");
   const emptyState = document.getElementById("brandEmptyState");
+  const cohortEl = document.getElementById("cohortComparison");
   if (sampleBanner) { sampleBanner.classList.add("hidden"); sampleBanner.innerHTML = ""; }
+  if (mergeGapNote) { mergeGapNote.classList.add("hidden"); mergeGapNote.innerHTML = ""; }
   if (emptyState) { emptyState.classList.add("hidden"); emptyState.innerHTML = ""; }
+  if (cohortEl) { cohortEl.classList.add("hidden"); cohortEl.innerHTML = ""; }
   const tableEl = document.getElementById("summaryTable");
   if (tableEl) tableEl.classList.remove("hidden");
+  const cohortHeaderEl = document.querySelector("#summaryTable th.col-cohort-header");
+  if (cohortHeaderEl) cohortHeaderEl.classList.add("hidden");
 
   for (const id of ["dropPinot", "dropMysql", "dropLambda"]) {
     const z = document.getElementById(id);
@@ -3259,6 +3705,8 @@ const BRIDGE_STORAGE_KEYS = {
   token: "gptRollout.bridge.token",
   pinotToken: "gptRollout.pinot.token",
   minSample: "gptRollout.pinot.minSample",
+  rolloutIds: "gptRollout.pinot.rolloutIds",
+  controlIds: "gptRollout.pinot.controlIds",
 };
 const BRIDGE_DEFAULT_URL = "http://127.0.0.1:8765";
 const BRIDGE_DEFAULT_MIN_SAMPLE = 10;
@@ -3312,6 +3760,18 @@ function syncBridgeFieldsFromStorage() {
                          : String(BRIDGE_DEFAULT_MIN_SAMPLE);
     if (minSampleEl.value !== value) minSampleEl.value = value;
   }
+  // Restore rollout / control brand-id lists from localStorage when set.
+  // Empty strings in storage are respected (user explicitly cleared them).
+  const rolloutEl = document.getElementById("pinotFetchBrandIds");
+  if (rolloutEl) {
+    const stored = safeLocalStorageGet(BRIDGE_STORAGE_KEYS.rolloutIds);
+    if (stored != null && rolloutEl.value !== stored) rolloutEl.value = stored;
+  }
+  const controlEl = document.getElementById("pinotControlBrandIds");
+  if (controlEl) {
+    const stored = safeLocalStorageGet(BRIDGE_STORAGE_KEYS.controlIds);
+    if (stored != null && controlEl.value !== stored) controlEl.value = stored;
+  }
 }
 
 function readMinSample() {
@@ -3320,6 +3780,23 @@ function readMinSample() {
   const raw = parseInt(document.getElementById("pinotMinSample")?.value || "", 10);
   const v = Number.isFinite(raw) ? raw : BRIDGE_DEFAULT_MIN_SAMPLE;
   return Math.max(1, Math.min(10000, v));
+}
+
+function syncDaysFields() {
+  // Bind mysqlFetchDays <-> pinotFetchDays so the inner-merge between Pinot
+  // (latency) and MySQL (sessions) always sees the same time window. Before
+  // this sync the MySQL window was hardcoded to 1 day while Pinot could be
+  // 14 or 30, which silently filtered out rollout brands from the table.
+  const mysqlDays = document.getElementById("mysqlFetchDays");
+  const pinotDays = document.getElementById("pinotFetchDays");
+  if (!mysqlDays || !pinotDays) return;
+  const bind = (src, dst) => {
+    src.addEventListener("change", () => {
+      if (dst.value !== src.value) dst.value = src.value;
+    });
+  };
+  bind(mysqlDays, pinotDays);
+  bind(pinotDays, mysqlDays);
 }
 
 function bridgeFetchUrl(base, suffix) {
@@ -3669,21 +4146,27 @@ async function handleLambdaFetchClick() {
   }
 }
 
-async function fetchPinotLatency({ url, token, pinotToken, days, brandIds }) {
+async function fetchPinotLatency({ url, token, pinotToken, days, brandIds, controlBrandIds }) {
   // Same shape as fetchMysqlAdoption but for the Pinot dataset. The Pinot
   // bearer token is included in the body (never as a URL parameter) so it
-  // doesn't end up in proxy/server logs.
+  // doesn't end up in proxy/server logs. controlBrandIds is optional: when
+  // present the bridge tags each returned row with rollout/control so the
+  // dashboard can render a side-by-side comparison.
   const headers = { "Content-Type": "application/json" };
   if (token) headers["X-Bridge-Token"] = token;
+  const body = {
+    days,
+    brand_ids: brandIds,
+    pinot_auth_token: pinotToken || undefined,
+  };
+  if (Array.isArray(controlBrandIds) && controlBrandIds.length > 0) {
+    body.control_brand_ids = controlBrandIds;
+  }
   const resp = await fetch(bridgeFetchUrl(url, "/query/pinot/latency"), {
     method: "POST",
     mode: "cors",
     headers,
-    body: JSON.stringify({
-      days,
-      brand_ids: brandIds,
-      pinot_auth_token: pinotToken || undefined,
-    }),
+    body: JSON.stringify(body),
   });
   let payload = null;
   try { payload = await resp.json(); } catch (e) { /* non-JSON response */ }
@@ -3703,20 +4186,25 @@ async function fetchPinotLatency({ url, token, pinotToken, days, brandIds }) {
 function normalizeFetchedPinotRows(rows) {
   // Bridge returns dict-of-strings already (parseCsv-shape); be defensive in
   // case Pinot ever changes the schema and convert every value to a trimmed
-  // string. validateColumns checks the 11-column first/follow-up schema.
-  return rows.map((row) => ({
-    brand_id: String(row.brand_id ?? "").trim(),
-    first_total_requests: row.first_total_requests == null ? "" : String(row.first_total_requests),
-    first_avg_ttfb_ms: row.first_avg_ttfb_ms == null ? "" : String(row.first_avg_ttfb_ms),
-    first_p50_ttfb_ms: row.first_p50_ttfb_ms == null ? "" : String(row.first_p50_ttfb_ms),
-    first_p95_ttfb_ms: row.first_p95_ttfb_ms == null ? "" : String(row.first_p95_ttfb_ms),
-    first_p99_ttfb_ms: row.first_p99_ttfb_ms == null ? "" : String(row.first_p99_ttfb_ms),
-    followup_total_requests: row.followup_total_requests == null ? "" : String(row.followup_total_requests),
-    followup_avg_ttfb_ms: row.followup_avg_ttfb_ms == null ? "" : String(row.followup_avg_ttfb_ms),
-    followup_p50_ttfb_ms: row.followup_p50_ttfb_ms == null ? "" : String(row.followup_p50_ttfb_ms),
-    followup_p95_ttfb_ms: row.followup_p95_ttfb_ms == null ? "" : String(row.followup_p95_ttfb_ms),
-    followup_p99_ttfb_ms: row.followup_p99_ttfb_ms == null ? "" : String(row.followup_p99_ttfb_ms),
-  }));
+  // string. validateColumns checks the 11-column first/follow-up schema; the
+  // optional cohort field is preserved verbatim when present.
+  return rows.map((row) => {
+    const out = {
+      brand_id: String(row.brand_id ?? "").trim(),
+      first_total_requests: row.first_total_requests == null ? "" : String(row.first_total_requests),
+      first_avg_ttfb_ms: row.first_avg_ttfb_ms == null ? "" : String(row.first_avg_ttfb_ms),
+      first_p50_ttfb_ms: row.first_p50_ttfb_ms == null ? "" : String(row.first_p50_ttfb_ms),
+      first_p95_ttfb_ms: row.first_p95_ttfb_ms == null ? "" : String(row.first_p95_ttfb_ms),
+      first_p99_ttfb_ms: row.first_p99_ttfb_ms == null ? "" : String(row.first_p99_ttfb_ms),
+      followup_total_requests: row.followup_total_requests == null ? "" : String(row.followup_total_requests),
+      followup_avg_ttfb_ms: row.followup_avg_ttfb_ms == null ? "" : String(row.followup_avg_ttfb_ms),
+      followup_p50_ttfb_ms: row.followup_p50_ttfb_ms == null ? "" : String(row.followup_p50_ttfb_ms),
+      followup_p95_ttfb_ms: row.followup_p95_ttfb_ms == null ? "" : String(row.followup_p95_ttfb_ms),
+      followup_p99_ttfb_ms: row.followup_p99_ttfb_ms == null ? "" : String(row.followup_p99_ttfb_ms),
+    };
+    if (row.cohort != null) out.cohort = String(row.cohort);
+    return out;
+  });
 }
 
 async function handlePinotFetchClick() {
@@ -3741,9 +4229,13 @@ async function handlePinotFetchClick() {
   syncBridgeFieldsFromStorage();
 
   let brandIds;
+  let controlBrandIds = [];
   try {
     brandIds = parseBrandIdsInput(document.getElementById("pinotFetchBrandIds")?.value || "");
-    if (brandIds.length === 0) throw new Error("At least one brand id is required.");
+    if (brandIds.length === 0) throw new Error("At least one rollout brand id is required.");
+    // Control IDs are optional. parseBrandIdsInput throws on bad input but
+    // tolerates an empty string by returning [].
+    controlBrandIds = parseBrandIdsInput(document.getElementById("pinotControlBrandIds")?.value || "");
   } catch (err) {
     showFetchBanner("pinot", "error", escapeHtml(err.message || String(err)));
     return;
@@ -3753,10 +4245,18 @@ async function handlePinotFetchClick() {
   fetchBtn.disabled = true;
   const originalLabel = fetchBtn.textContent;
   fetchBtn.textContent = "Fetching…";
-  setFetchStatus("pinot", "Querying Pinot via the local bridge…");
+  setFetchStatus(
+    "pinot",
+    controlBrandIds.length > 0
+      ? `Querying Pinot for ${brandIds.length} rollout + ${controlBrandIds.length} control brand${brandIds.length + controlBrandIds.length === 1 ? "" : "s"}…`
+      : "Querying Pinot via the local bridge…",
+  );
 
   try {
-    const payload = await fetchPinotLatency({ url, token, pinotToken, days, brandIds });
+    const payload = await fetchPinotLatency({
+      url, token, pinotToken, days,
+      brandIds, controlBrandIds,
+    });
     const normalized = normalizeFetchedPinotRows(payload.rows);
     validateColumns(normalized, PINOT_REQUIRED, "Pinot bridge response");
     state.pinotRows = normalized;
@@ -3850,6 +4350,16 @@ function persistBridgeSettingsOnInput() {
       regenerateBrandViewFromState();
     }
   });
+  // Persist the rollout + control brand-id textareas so the cohort definition
+  // survives page reloads (people don't want to re-type 8 ids twice a day).
+  const rolloutEl = document.getElementById("pinotFetchBrandIds");
+  rolloutEl?.addEventListener("change", () => {
+    safeLocalStorageSet(BRIDGE_STORAGE_KEYS.rolloutIds, rolloutEl.value);
+  });
+  const controlEl = document.getElementById("pinotControlBrandIds");
+  controlEl?.addEventListener("change", () => {
+    safeLocalStorageSet(BRIDGE_STORAGE_KEYS.controlIds, controlEl.value);
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -3869,6 +4379,11 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("mysqlFetchBtn")?.addEventListener("click", handleMysqlFetchClick);
   document.getElementById("lambdaFetchBtn")?.addEventListener("click", handleLambdaFetchClick);
   document.getElementById("pinotFetchBtn")?.addEventListener("click", handlePinotFetchClick);
+  // Keep the MySQL and Pinot "Last N days" inputs locked together so the
+  // brand-level merge (which inner-joins on brand_id) sees both sides on
+  // the same window. Mismatched windows used to silently drop rollout
+  // brands that weren't in MySQL's narrower window.
+  syncDaysFields();
   document.getElementById("btnGenerate").addEventListener("click", generate);
   document.getElementById("btnDownloadReportPng").addEventListener("click", downloadReportPng);
   document.getElementById("btnDownloadReportHtml").addEventListener("click", downloadReportHtml);

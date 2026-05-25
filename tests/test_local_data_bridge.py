@@ -601,21 +601,28 @@ def test_post_pinot_latency_happy_path_through_http(bridge: ModuleType) -> None:
     runner_calls: list[dict[str, Any]] = []
 
     def fake_pinot_runner(*, config: Any, brand_ids: tuple[int, ...], days: int,
-                          pinot_auth_token: str) -> dict[str, Any]:
+                          pinot_auth_token: str,
+                          control_brand_ids: tuple[int, ...] = ()) -> dict[str, Any]:
         """Capture call args and emit canned rows."""
 
         runner_calls.append({
             "brand_ids": brand_ids, "days": days, "token": pinot_auth_token,
+            "control_brand_ids": control_brand_ids,
         })
         return {
             "rows": [{
-                "brand_id": "411", "total_requests": "57",
-                "avg_ttfb_ms": "2740.09", "p50_ttfb_ms": "2381.00",
-                "p95_ttfb_ms": "6483.85", "p99_ttfb_ms": "6701.36",
+                "brand_id": "411",
+                "first_total_requests": "18", "first_avg_ttfb_ms": "2900.50",
+                "first_p50_ttfb_ms": "2400.00", "first_p95_ttfb_ms": "6800.85",
+                "first_p99_ttfb_ms": "7400.00",
+                "followup_total_requests": "39", "followup_avg_ttfb_ms": "2400.60",
+                "followup_p50_ttfb_ms": "2100.00", "followup_p95_ttfb_ms": "6100.12",
+                "followup_p99_ttfb_ms": "6900.00",
             }],
             "window_ms": 86_400_000,
             "num_docs_scanned": 57,
             "time_used_ms": 3,
+            "has_control": False,
         }
 
     server, _, base = _start_bridge_server(
@@ -639,11 +646,120 @@ def test_post_pinot_latency_happy_path_through_http(bridge: ModuleType) -> None:
         assert payload["window_ms"] == 86_400_000
         assert payload["num_docs_scanned"] == 57
         assert payload["time_used_ms"] == 3
+        assert payload["has_control"] is False
         assert runner_calls and runner_calls[0] == {
             "brand_ids": (411,), "days": 1, "token": "jwt-from-paste",
+            "control_brand_ids": (),
         }
     finally:
         server.shutdown(); server.server_close()
+
+
+def test_post_pinot_latency_tags_cohort_when_control_supplied(bridge: ModuleType) -> None:
+    """Both lists in the body -> rows tagged rollout/control, combined IN clause."""
+
+    captured: dict[str, Any] = {}
+
+    def fake_pinot_runner(*, config: Any, brand_ids: tuple[int, ...], days: int,
+                          pinot_auth_token: str,
+                          control_brand_ids: tuple[int, ...] = ()) -> dict[str, Any]:
+        """Stand-in for fetch_pinot_latency that emits one row per IN-list id."""
+
+        captured["brand_ids"] = brand_ids
+        captured["control_brand_ids"] = control_brand_ids
+        # The real runner tags rows with cohort; mimic that here so the HTTP
+        # handler passes the rows through unchanged.
+        rows = []
+        for bid in brand_ids:
+            rows.append({"brand_id": str(bid), "cohort": "rollout"})
+        for bid in control_brand_ids:
+            rows.append({"brand_id": str(bid), "cohort": "control"})
+        return {
+            "rows": rows, "window_ms": days * 86_400_000,
+            "num_docs_scanned": 0, "time_used_ms": 1,
+            "has_control": bool(control_brand_ids),
+        }
+
+    server, _, base = _start_bridge_server(
+        bridge, require_auth=False, bridge_token="",
+        pinot_runner=fake_pinot_runner,
+        pinot_auth_token="env-token",
+    )
+    try:
+        status, _h, payload = _http_request(
+            "POST",
+            base + "/query/pinot/latency",
+            headers={"Content-Type": "application/json"},
+            body={
+                "days": 7, "brand_ids": [411, 470],
+                "control_brand_ids": [367, 311],
+            },
+        )
+        assert status == 200
+        assert payload["has_control"] is True
+        assert payload["brand_ids"] == [411, 470]
+        assert payload["control_brand_ids"] == [367, 311]
+        assert {row["brand_id"]: row["cohort"] for row in payload["rows"]} == {
+            "411": "rollout", "470": "rollout",
+            "367": "control", "311": "control",
+        }
+        assert captured["brand_ids"] == (411, 470)
+        assert captured["control_brand_ids"] == (367, 311)
+    finally:
+        server.shutdown(); server.server_close()
+
+
+def test_fetch_pinot_latency_tags_overlapping_ids_as_rollout(bridge: ModuleType) -> None:
+    """If a brand_id is in both lists, rollout label wins (rollout is primary)."""
+
+    def fake_http(**_: Any) -> Any:
+        """Pinot stub returning two rows: one rollout-only, one in both lists."""
+
+        payload = {
+            "resultTable": {
+                "dataSchema": {
+                    "columnNames": [
+                        "brand_id",
+                        "first_total_requests", "first_avg_ttfb_ms",
+                        "first_p50_ttfb_ms", "first_p95_ttfb_ms", "first_p99_ttfb_ms",
+                        "followup_total_requests", "followup_avg_ttfb_ms",
+                        "followup_p50_ttfb_ms", "followup_p95_ttfb_ms",
+                        "followup_p99_ttfb_ms",
+                    ],
+                },
+                "rows": [
+                    [411, 1, 1.0, 1.0, 1.0, 1.0, 0, 0.0, 0.0, 0.0, 0.0],
+                    [367, 2, 1.0, 1.0, 1.0, 1.0, 0, 0.0, 0.0, 0.0, 0.0],
+                ],
+            },
+            "exceptions": [],
+            "numDocsScanned": 3,
+            "timeUsedMs": 1,
+        }
+        return bridge._PinotHttpResponse(200, json.dumps(payload))
+
+    cfg = bridge.BridgeConfig(
+        repo_root=Path(__file__).resolve().parents[1],
+        port=0, require_auth=False, bridge_token="",
+        allowed_origins=bridge.DEFAULT_ALLOWED_ORIGINS,
+        rds_host="", rds_port=3306, rds_user="", rds_region="us-west-2",
+        rds_database="", ca_bundle_path=Path("/tmp/ca.pem"),
+        pinot_base_url="https://pinot.example", pinot_auth_token="",
+    )
+    template = (
+        "SELECT brand_id FROM t WHERE first_chunk_timestamp >= now() - __WINDOW_MS__ "
+        "AND brand_id IN (__BRAND_IDS__)"
+    )
+    result = bridge.fetch_pinot_latency(
+        config=cfg, brand_ids=(411,), days=1,
+        # 411 appears in both lists - rollout should win.
+        control_brand_ids=(411, 367),
+        pinot_auth_token="t", http_runner=fake_http,
+        template_loader=lambda _: template,
+    )
+    cohorts = {row["brand_id"]: row["cohort"] for row in result["rows"]}
+    assert cohorts == {"411": "rollout", "367": "control"}
+    assert result["has_control"] is True
 
 
 def test_post_pinot_latency_falls_back_to_env_token(bridge: ModuleType) -> None:
@@ -652,7 +768,8 @@ def test_post_pinot_latency_falls_back_to_env_token(bridge: ModuleType) -> None:
     captured = {}
 
     def fake_pinot_runner(*, config: Any, brand_ids: tuple[int, ...], days: int,
-                          pinot_auth_token: str) -> dict[str, Any]:
+                          pinot_auth_token: str,
+                          control_brand_ids: tuple[int, ...] = ()) -> dict[str, Any]:
         """Record which token the bridge handed us."""
 
         captured["token"] = pinot_auth_token

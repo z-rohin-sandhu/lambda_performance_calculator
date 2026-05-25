@@ -65,7 +65,8 @@ module.exports = {
   fetchLambdaCloudwatch, normalizeFetchedLambdaRows, parseLambdaNamesInput,
   fetchPinotLatency, normalizeFetchedPinotRows,
   bucketHealth, worstHealth, classifyHealth,
-  partitionBySample,
+  partitionBySample, computeCohortComparison, aggregateCohort,
+  buildPinotOnlySummary,
 };
 `;
 
@@ -465,6 +466,116 @@ globalThis.fetch = async (url, init) => {
     strictParts.above.length, 0);
   assertEqual("strict threshold preserves the original row count below",
     strictParts.below.length, 2);
+
+  /* ----- Cohort comparison (rollout vs control) ----- */
+
+  // Mixed cohort summary: two rollout brands and two control brands, each
+  // above threshold so the comparison sees them all.
+  const cohortSummary = [
+    {
+      brand_id: "411", brand_name: "Rollout A", cohort: "rollout",
+      total_sessions: 100,
+      first_total_requests: 100, first_p95_ttfb_ms: 3000, first_p99_ttfb_ms: 4000,
+      followup_total_requests: 300, followup_p95_ttfb_ms: 2500, followup_p99_ttfb_ms: 3000,
+      total_requests: 400, health_status: "GREEN", first_health: "GREEN", followup_health: "GREEN",
+    },
+    {
+      brand_id: "470", brand_name: "Rollout B", cohort: "rollout",
+      total_sessions: 40,
+      first_total_requests: 100, first_p95_ttfb_ms: 5000, first_p99_ttfb_ms: 6000,
+      followup_total_requests: 100, followup_p95_ttfb_ms: 4500, followup_p99_ttfb_ms: 5500,
+      total_requests: 200, health_status: "YELLOW", first_health: "YELLOW", followup_health: "GREEN",
+    },
+    {
+      brand_id: "367", brand_name: "Control A", cohort: "control",
+      total_sessions: 200,
+      first_total_requests: 400, first_p95_ttfb_ms: 2000, first_p99_ttfb_ms: 2500,
+      followup_total_requests: 800, followup_p95_ttfb_ms: 1800, followup_p99_ttfb_ms: 2200,
+      total_requests: 1200, health_status: "GREEN", first_health: "GREEN", followup_health: "GREEN",
+    },
+    {
+      brand_id: "311", brand_name: "Control B", cohort: "control",
+      total_sessions: 100,
+      first_total_requests: 100, first_p95_ttfb_ms: 3000, first_p99_ttfb_ms: 3500,
+      followup_total_requests: 100, followup_p95_ttfb_ms: 2700, followup_p99_ttfb_ms: 3100,
+      total_requests: 200, health_status: "GREEN", first_health: "GREEN", followup_health: "GREEN",
+    },
+  ];
+  const cmp = logic.computeCohortComparison(cohortSummary);
+  // Rollout request-weighted first_p95: (3000*100 + 5000*100) / (100+100) = 4000 ms
+  // Control request-weighted first_p95: (2000*400 + 3000*100) / (400+100) = 2200 ms
+  assertEqual("rollout request-weighted first p95",
+    Math.round(cmp.rollout.firstP95), 4000);
+  assertEqual("control request-weighted first p95",
+    Math.round(cmp.control.firstP95), 2200);
+  assertEqual("first p95 delta = rollout - control",
+    Math.round(cmp.firstDelta), 1800);
+  assertEqual("rollout brand count", cmp.rollout.brandCount, 2);
+  assertEqual("control brand count", cmp.control.brandCount, 2);
+  assertEqual("rollout total requests", cmp.rollout.totalRequests, 600);
+  assertEqual("control total requests", cmp.control.totalRequests, 1400);
+
+  // No-cohort path: classic rollout-only fetch (no cohort labels on rows).
+  const uncohorted = synthSummary.map((r) => ({ ...r, cohort: undefined }));
+  assertEqual("computeCohortComparison returns null when no rows are tagged",
+    logic.computeCohortComparison(uncohorted), null);
+
+  // Cohort-but-only-rollout path: control list empty, all rows are rollout.
+  const rolloutOnly = cohortSummary.filter((r) => r.cohort === "rollout");
+  const onlyCmp = logic.computeCohortComparison(rolloutOnly);
+  assertEqual("rollout-only comparison has no control side",
+    onlyCmp.control, null);
+  assertEqual("rollout-only comparison cannot compute delta",
+    onlyCmp.firstDelta, null);
+
+  /* ----- buildPinotOnlySummary keeps cohorts MySQL doesn't know about ----- */
+
+  // Raw Pinot rows (parseCsv-shaped: dict-of-strings) for both a rollout and
+  // a control brand. MySQL would only know about the rollout one.
+  const rawPinotRows = [
+    {
+      brand_id: "411", cohort: "rollout",
+      first_total_requests: "20", first_avg_ttfb_ms: "3000.00",
+      first_p50_ttfb_ms: "2800.00", first_p95_ttfb_ms: "4500.00", first_p99_ttfb_ms: "5500.00",
+      followup_total_requests: "80", followup_avg_ttfb_ms: "2500.00",
+      followup_p50_ttfb_ms: "2200.00", followup_p95_ttfb_ms: "3800.00", followup_p99_ttfb_ms: "4400.00",
+    },
+    {
+      brand_id: "367", cohort: "control",
+      first_total_requests: "100", first_avg_ttfb_ms: "1800.00",
+      first_p50_ttfb_ms: "1700.00", first_p95_ttfb_ms: "2500.00", first_p99_ttfb_ms: "3000.00",
+      followup_total_requests: "300", followup_avg_ttfb_ms: "1600.00",
+      followup_p50_ttfb_ms: "1500.00", followup_p95_ttfb_ms: "2200.00", followup_p99_ttfb_ms: "2700.00",
+    },
+  ];
+  const pinotOnly = logic.buildPinotOnlySummary(rawPinotRows, thresholds, 10);
+  assertEqual("buildPinotOnlySummary returns one row per input",
+    pinotOnly.length, 2);
+  // Fallback brand_name when MySQL is bypassed.
+  const rolloutRow = pinotOnly.find((r) => r.cohort === "rollout");
+  const controlRow = pinotOnly.find((r) => r.cohort === "control");
+  assertEqual("rollout fallback brand_name uses #<id>", rolloutRow.brand_name, "#411");
+  assertEqual("control fallback brand_name uses #<id>", controlRow.brand_name, "#367");
+  assertEqual("rollout total_requests sums first + followup",
+    rolloutRow.total_requests, 100);
+  assertEqual("control total_requests sums first + followup",
+    controlRow.total_requests, 400);
+  // Cohort comparison built from raw Pinot rows must include the control
+  // brand that MySQL doesn't have - this is the bug fix.
+  const rawCmp = logic.computeCohortComparison(
+    pinotOnly.filter((r) => !r.below_min_sample),
+  );
+  assertEqual("comparison sees both cohorts when computed from Pinot-only",
+    rawCmp.control != null && rawCmp.rollout != null, true);
+  // Request-weighted first p95:
+  //   rollout: (4500 * 20) / 20 = 4500ms
+  //   control: (2500 * 100) / 100 = 2500ms
+  //   delta = 4500 - 2500 = 2000ms
+  assertEqual("rollout first p95 from raw pinot",
+    Math.round(rawCmp.rollout.firstP95), 4500);
+  assertEqual("control first p95 from raw pinot",
+    Math.round(rawCmp.control.firstP95), 2500);
+  assertEqual("delta = rollout - control", Math.round(rawCmp.firstDelta), 2000);
 
   console.log("\nAll JS pipeline smoke checks pass.");
 })().catch((err) => {
