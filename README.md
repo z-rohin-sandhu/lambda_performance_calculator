@@ -3,6 +3,8 @@
 Reusable workflow for collecting AWS Lambda CloudWatch data and turning it into a concise performance/RCA report.
 
 > **First time setting this up?** See [INSTALLATION.md](INSTALLATION.md) for the 7-step laptop runbook (Python, venv, `.env`, bridge, dashboard).
+>
+> **First time reading the dashboard?** See [INTERPRETING_DATA.md](INTERPRETING_DATA.md) for what the cohort comparison, brand table, and banners actually mean — and how to turn them into a decision.
 
 ## What this repo contains
 
