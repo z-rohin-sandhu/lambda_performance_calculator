@@ -592,19 +592,25 @@ def load_pinot_template(repo_root: Path) -> str:
 
 
 def _normalize_pinot_row(column_names: list[str], values: list[Any]) -> dict[str, Any]:
-    """Zip a Pinot result row into the dashboard's Pinot CSV row shape."""
+    """Zip a Pinot result row into the dashboard's 11-column Pinot row shape."""
 
     row: dict[str, Any] = {}
     for name, value in zip(column_names, values):
         row[name] = "" if value is None else value
-    # Coerce types to strings (dashboard expects parseCsv-like dict-of-strings).
+    # Coerce every numeric to a stable string representation so the dashboard's
+    # validateColumns + parseCsv-shaped objects keep working unchanged.
     return {
         "brand_id": str(row.get("brand_id", "")).strip(),
-        "total_requests": _to_int_str(row.get("total_requests")),
-        "avg_ttfb_ms": _to_float_str(row.get("avg_ttfb_ms")),
-        "p50_ttfb_ms": _to_float_str(row.get("p50_ttfb_ms")),
-        "p95_ttfb_ms": _to_float_str(row.get("p95_ttfb_ms")),
-        "p99_ttfb_ms": _to_float_str(row.get("p99_ttfb_ms")),
+        "first_total_requests": _to_int_str(row.get("first_total_requests")),
+        "first_avg_ttfb_ms": _to_float_str(row.get("first_avg_ttfb_ms")),
+        "first_p50_ttfb_ms": _to_float_str(row.get("first_p50_ttfb_ms")),
+        "first_p95_ttfb_ms": _to_float_str(row.get("first_p95_ttfb_ms")),
+        "first_p99_ttfb_ms": _to_float_str(row.get("first_p99_ttfb_ms")),
+        "followup_total_requests": _to_int_str(row.get("followup_total_requests")),
+        "followup_avg_ttfb_ms": _to_float_str(row.get("followup_avg_ttfb_ms")),
+        "followup_p50_ttfb_ms": _to_float_str(row.get("followup_p50_ttfb_ms")),
+        "followup_p95_ttfb_ms": _to_float_str(row.get("followup_p95_ttfb_ms")),
+        "followup_p99_ttfb_ms": _to_float_str(row.get("followup_p99_ttfb_ms")),
     }
 
 
@@ -636,10 +642,16 @@ def fetch_pinot_latency(
     brand_ids: tuple[int, ...],
     days: int,
     pinot_auth_token: str,
+    control_brand_ids: tuple[int, ...] = (),
     http_runner: Callable[..., Any] | None = None,
     template_loader: Callable[[Path], str] | None = None,
 ) -> dict[str, Any]:
-    """Render the Pinot SQL, POST it to /sql, and return CSV-shaped rows."""
+    """Render the Pinot SQL, POST it to /sql, and return CSV-shaped rows.
+
+    When control_brand_ids is non-empty the bridge runs a single query against
+    the union of rollout + control IDs and tags each returned row with a
+    cohort label so the dashboard can compare the two groups side-by-side.
+    """
 
     base_url = (config.pinot_base_url or "").strip().rstrip("/")
     if not base_url:
@@ -654,19 +666,28 @@ def fetch_pinot_latency(
             "dashboard's 'Pinot token' field or set PINOT_AUTH_TOKEN in .env.",
         )
 
+    rollout_set = set(brand_ids)
+    control_set = set(control_brand_ids)
+    # If a brand_id appears in both lists, rollout wins for tagging purposes
+    # (the rollout cohort is the primary subject; control is the comparison).
+    combined_ids = tuple(dict.fromkeys(list(brand_ids) + list(control_brand_ids)))
+    has_control = bool(control_set)
+
     loader = template_loader or load_pinot_template
     template = loader(config.repo_root)
     # Rolling N-day window in milliseconds; we keep the units in Pinot's native
     # epoch-ms because the underlying column is `first_chunk_timestamp` (ms).
     window_ms = int(days) * 86_400_000
-    sql = build_pinot_latency_query(template, brand_ids, window_ms)
+    sql = build_pinot_latency_query(template, combined_ids, window_ms)
 
     body = json.dumps({"sql": sql, "trace": False, "queryOptions": ""}).encode("utf-8")
     runner = http_runner or _post_pinot_sql
 
     LOGGER.info(
-        "Fetching Pinot latency: window_ms=%d brand_ids=%s",
-        window_ms, ",".join(str(b) for b in brand_ids),
+        "Fetching Pinot latency: window_ms=%d rollout=%s control=%s",
+        window_ms,
+        ",".join(str(b) for b in brand_ids),
+        ",".join(str(b) for b in control_brand_ids) or "(none)",
     )
     response = runner(
         url=f"{base_url}/sql",
@@ -708,12 +729,29 @@ def fetch_pinot_latency(
     column_names = list(schema.get("columnNames") or [])
     rows_raw = result_table.get("rows") or []
     rows = [_normalize_pinot_row(column_names, row) for row in rows_raw]
+    if has_control:
+        # Tag each row with its cohort. When control IDs are omitted we leave
+        # the cohort field out entirely so existing callers keep their schema.
+        for row in rows:
+            try:
+                bid = int(row.get("brand_id", "") or 0)
+            except (TypeError, ValueError):
+                bid = 0
+            if bid in rollout_set:
+                row["cohort"] = "rollout"
+            elif bid in control_set:
+                row["cohort"] = "control"
+            else:
+                row["cohort"] = "unknown"
 
     return {
         "rows": rows,
         "window_ms": window_ms,
         "num_docs_scanned": payload.get("numDocsScanned"),
         "time_used_ms": payload.get("timeUsedMs"),
+        "rollout_brand_ids": list(brand_ids),
+        "control_brand_ids": list(control_brand_ids),
+        "has_control": has_control,
     }
 
 
@@ -964,20 +1002,29 @@ def make_handler(
             body = self._read_json_body()
             brand_ids = parse_brand_ids(body.get("brand_ids"))
             days = parse_days(body.get("days"))
+            # control_brand_ids is optional; when present each row gets a
+            # cohort label so the dashboard can compare rollout vs control.
+            raw_control = body.get("control_brand_ids")
+            control_brand_ids: tuple[int, ...] = ()
+            if raw_control not in (None, "", []):
+                control_brand_ids = parse_brand_ids(raw_control)
             # Body-supplied token takes precedence over the env-var default so
             # the user can paste a fresh JWT into the dashboard without having
             # to edit .env every 24h.
             token = str(body.get("pinot_auth_token") or "").strip() or config.pinot_auth_token
 
             LOGGER.info(
-                "Fetching Pinot latency: days=%d brand_ids=%s",
-                days, ",".join(str(b) for b in brand_ids),
+                "Fetching Pinot latency: days=%d brand_ids=%s control=%s",
+                days,
+                ",".join(str(b) for b in brand_ids),
+                ",".join(str(b) for b in control_brand_ids) or "(none)",
             )
             result = pinot_runner(
                 config=config,
                 brand_ids=brand_ids,
                 days=days,
                 pinot_auth_token=token,
+                control_brand_ids=control_brand_ids,
             )
             self._send_json(
                 200,
@@ -988,6 +1035,8 @@ def make_handler(
                     "days": days,
                     "window_ms": result.get("window_ms"),
                     "brand_ids": list(brand_ids),
+                    "control_brand_ids": list(control_brand_ids),
+                    "has_control": result.get("has_control", False),
                     "num_docs_scanned": result.get("num_docs_scanned"),
                     "time_used_ms": result.get("time_used_ms"),
                 },

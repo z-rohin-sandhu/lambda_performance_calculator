@@ -3,6 +3,8 @@
 Reusable workflow for collecting AWS Lambda CloudWatch data and turning it into a concise performance/RCA report.
 
 > **First time setting this up?** See [INSTALLATION.md](INSTALLATION.md) for the 7-step laptop runbook (Python, venv, `.env`, bridge, dashboard).
+>
+> **First time reading the dashboard?** See [INTERPRETING_DATA.md](INTERPRETING_DATA.md) for what the cohort comparison, brand table, and banners actually mean — and how to turn them into a decision.
 
 ## What this repo contains
 
@@ -302,7 +304,20 @@ Then in the browser dashboard:
 2. The **Bridge connection** bar at the top is the single place to configure the bridge URL + token. Paste the bridge token from the terminal once — it's persisted in `localStorage` and used by every Fetch tab below. The status pill in the bar turns green when the bridge is reachable.
 3. **(MySQL adoption)** Switch the **MySQL adoption CSV** zone to the **Fetch from RDS** tab. Adjust **Last N days** and **Brand IDs** if needed; defaults are `1` and `470,257,466,416,38,221,411,301`. Click **Fetch adoption metrics from RDS**.
 4. **(Lambda from CloudWatch)** Switch the **Lambda CloudWatch CSV** zone to the **Fetch from bridge** tab. Tweak **Environment** (default `prod`), **AWS region** (default `us-west-1`), **Last N days** (default `1`), and optionally a custom **Lambda names** list (leave blank for the env defaults from `default_lambda_names`). The default ignore list (`should_flush.emergency_accumulation`) is applied unless you tick **Skip default ignores**, plus any extras you paste into **Extra ignore patterns**. Click **Fetch lambda metrics from CloudWatch**. This runs `scripts/cloudwatch_review_collect.sh` under the hood and can take 30–90s; the panel shows an elapsed-seconds ticker while it works.
-5. **(Pinot from StarTree)** Switch the **Pinot latency CSV** zone to the **Fetch from bridge** tab. Paste your **Pinot bearer token** (the JWT you'd otherwise pass to curl); it persists in `localStorage` separately from the bridge token because it rotates daily. Tweak **Last N days** (default `1`) and **Brand IDs** if needed. Click **Fetch latency metrics from Pinot**. The bridge runs the hard-coded `pinot_latency.sql` (SELECT-only) and returns the rolled-up TTFB stats.
+5. **(Pinot from StarTree)** Switch the **Pinot latency CSV** zone to the **Fetch from bridge** tab. Paste your **Pinot bearer token** (the JWT you'd otherwise pass to curl); it persists in `localStorage` separately from the bridge token because it rotates daily. Tweak **Last N days** (default `1`), **Rollout brand IDs** (your WebSocket-enabled cohort), and optionally **Control brand IDs** (a traditional-GPT comparison cohort) if needed. Click **Fetch latency metrics from Pinot**. The bridge runs the hard-coded `pinot_latency.sql` (SELECT-only) and returns TTFB stats split by `conversation_turn`: **first utterance** (`turn = 1`) vs **follow-up** (`turn != 1`). The brand-health table renders both sets side-by-side; the per-row health pill is the **worst of the two buckets**, and any p95/p99 cell that exceeds the threshold in only one bucket gets a subtle warning tint so you can see which side is the problem.
+
+#### Rollout vs control comparison (decisioning view)
+
+When you supply **Control brand IDs** alongside the rollout list, the bridge runs a single Pinot query against the union of both ID sets and tags each returned row with `cohort = 'rollout'` or `cohort = 'control'`. The dashboard then:
+
+- Adds a **Cohort comparison** panel above the brand table with two cards (Rollout / Control) showing request-weighted first p95, total requests, brand count, and the GREEN/YELLOW/RED mix in each cohort.
+- Prints a one-line verdict like *"Rollout (WebSocket) is 1,800 ms slower than control (traditional) at first-utterance p95"* — the headline number you need to decide whether to enable WebSocket for more brands.
+- Adds a **Cohort** column to the brand health table and groups rollout rows above control rows.
+- Mirrors the same comparison block into the downloadable PNG and HTML reports so a Slack-shared snapshot tells the same story.
+
+The request-weighted first p95 is `sum(brand_first_p95 × brand_first_N) / sum(brand_first_N)` across each cohort — heavy brands count proportionally more, matching how end users feel the average latency. For statistically rigorous comparisons, run the underlying SQL with a `GROUP BY cohort` aggregate directly in Pinot; the dashboard's number is good for decisioning but not for hypothesis testing.
+
+Leave **Control brand IDs** blank to skip the comparison entirely — the dashboard reverts to the single-cohort view.
 6. **Generate dashboard**.
 
 #### Pinot security notes
